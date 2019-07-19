@@ -53,7 +53,7 @@ In the future, the documentation will be uploaded to
 Development
 -----------
 
-In case you want to contribute to this project contact the authors by now.
+In case you want to contribute to this project contact the authors by e-mail.
 
 Acknowledgements
 ----------------
