@@ -10,12 +10,17 @@ the package from github or directly from source files and running the command be
 
 Libraries: mdfeature requires the following libraries to be installed.
 
-    Python 3.0
+    Python 3.6+
     numpy
     scipy
     itertools
     math
-    sklearn
+    scikit-learn
+    spinx
+    openmmtools
+    pyemma
+    matplotlib
+    jupyter
     pydiffmap
 
 At the command line::
