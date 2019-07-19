@@ -55,5 +55,7 @@ Development
 
 In case you want to contribute to this project contact the authors by e-mail.
 
+Thanks.
+
 Acknowledgements
 ----------------
