@@ -5,7 +5,10 @@ A class to implement diffusion kernels.
 import numbers
 import numpy as np
 import warnings
-from scipy.misc import logsumexp
+try:
+    from scipy.special import logsumexp
+except ModuleNotFoundError:
+    from scipy.misc import logsumexp
 from sklearn.neighbors import NearestNeighbors
 
 
