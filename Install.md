@@ -1,5 +1,6 @@
 #Install with a clean conda environment
 
+The folowwing are a complete set of instructions in order to install mdfeature without any issues in a new conda environment listing all required dependencies etc. 
 
 1. Create a new conda environment   
 ```

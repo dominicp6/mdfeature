@@ -8,25 +8,7 @@ Installation
 You can install the package directly from the source directly by downloading
 the package from github or directly from source files and running the command below
 
-Libraries: mdfeature requires the following libraries to be installed.
-
-    Python 3.6+
-    numpy
-    scipy
-    itertools
-    math
-    scikit-learn
-    spinx
-    openmmtools
-    pyemma
-    matplotlib
-    jupyter
-    pydiffmap
-
-At the command line::
-
-    cd mdfeature
-    python setup.py install
+Please follow the installation instructions found [here](Install.md).
 
 Documentation
 -------------
