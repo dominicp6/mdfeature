@@ -1,4 +1,4 @@
-name: jacs
+name: mdfeature 
 channels:
   - conda-forge
   - omnia
