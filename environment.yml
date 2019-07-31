@@ -1,0 +1,18 @@
+name: jacs
+channels:
+  - conda-forge
+  - omnia
+  - defaults
+dependencies:
+  - jupyter
+  - pandas
+  - xlrd
+  - numpy
+  - seaborn
+  - matplotlib
+  - notebook
+  - scikit-learn
+  - scipy
+  - pyemma
+  - sphinx
+  - openmmtools
