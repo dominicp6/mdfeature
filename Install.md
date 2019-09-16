@@ -4,29 +4,16 @@ The folowwing are a complete set of instructions in order to install mdfeature w
 
 1. Create a new conda environment   
 ```
-conda create -n mdfeature
+conda env create -f environment.yml -n mdfeaturen
 ```
-2. Activate the environment   
-```
-source activate mdfeature
-```
-3. Install all required packages:   
-```
-conda install jupyter scipy scikit-learn seaborn sphinx  
-```   
-```
-conda install -c conda-forge pyemma mdtraj
-```
-```
-conda install -c omnia openmm openmmtools
-```
-4. PyDiffmap: The pip install is incompatible with scipy v 1.+, therefore we'll install from source:   
+`source activate mdfreature`
+2. PyDiffmap: The pip install is incompatible with scipy v 1.+, therefore we'll install from source:   
  `git clone https://github.com/DiffusionMapsAcademics/pyDiffMap.git`   
  `cd pyDiffMap`   
  `git checkout dev_old_scipy`   
  `python setup.py install`   
 
-5. Install mdfeature:   
+3. Install mdfeature:   
 ```
 git clone git@github.com:michellab/mdfeature.git
 ```   
