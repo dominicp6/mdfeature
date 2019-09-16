@@ -74,31 +74,69 @@ def compute_torsion_mdraj(traj, angle_index):
 
     torsions = []
     i, j, k, l = angle_index
+    
+    coordinates = traj.xyz
+    coordinates = coordinates.transpose([1,0,2])
+    
+    rij = (coordinates[i] - coordinates[j])
+    rkj = (coordinates[k] - coordinates[j])
+    rlk = (coordinates[l] - coordinates[k])
+    rjk = (coordinates[j] - coordinates[k])
+        
+        
+    t = np.cross(rij, rkj)
+    u = np.cross(rjk, rlk)
 
-    for x in traj:
-        coordinates = x.xyz.squeeze()
+
+    t_norm = np.sqrt(numpy.sum(t* t,1))
+    u_norm = np.sqrt(numpy.sum(u* u,1))
+
+    denom = (t_norm*u_norm )
+    denom[denom<=0] = 1e-8
+
+    cos_theta = np.sum( t*u,1) / denom
+
+    cos_theta[cos_theta<-1] = -1 
+    cos_theta[cos_theta>1] = 1 
+
+    theta = np.arccos(cos_theta) * np.sign(np.sum (rkj* np.cross(t, u),1))
+
+    return theta
 
 
-        # Swope and Ferguson, Eq. 26
-        rij = (coordinates[i] - coordinates[j])
-        rkj = (coordinates[k] - coordinates[j])
-        rlk = (coordinates[l] - coordinates[k])
-        rjk = (coordinates[j] - coordinates[k])
+#     for x in traj:
+#         coordinates = x.xyz.squeeze()
 
-        # Swope and Ferguson, Eq. 27
-        t = np.cross(rij, rkj)
-        u = np.cross(rjk, rlk) # fixed because this didn't seem to match diagram in equation in paper
 
-        # Swope and Ferguson, Eq. 28
-        t_norm = np.sqrt(numpy.dot(t, t))
-        u_norm = np.sqrt(numpy.dot(u, u))
+#         # Swope and Ferguson, Eq. 26
+#         rij = (coordinates[i] - coordinates[j])
+#         rkj = (coordinates[k] - coordinates[j])
+#         rlk = (coordinates[l] - coordinates[k])
+#         rjk = (coordinates[j] - coordinates[k])
 
-        cos_theta = np.dot(t, u)/ (t_norm * u_norm)
-        theta = np.arccos(cos_theta) * np.sign(np.dot(rkj, np.cross(t, u)))
+#         # Swope and Ferguson, Eq. 27
+#         t = np.cross(rij, rkj)
+#         u = np.cross(rjk, rlk) # fixed because this didn't seem to match diagram in equation in paper
 
-        torsions.append(theta)
+#         # Swope and Ferguson, Eq. 28
+#         t_norm = np.sqrt(numpy.dot(t, t))
+#         u_norm = np.sqrt(numpy.dot(u, u))
+#         denom = (t_norm * u_norm)
+        
+#         if (denom<=0):
+#             denom = 1e-8
+#         #denom[denom<=0] = 1e-8
 
-    return torsions
+#         cos_theta = np.dot(t, u)/ denom #(t_norm * u_norm)
+        
+#         cos_theta[cos_theta>1] = 1
+#         cos_theta[cos_theta<-1] = -1
+        
+#         theta = np.arccos(cos_theta) * np.sign(np.dot(rkj, np.cross(t, u)))
+
+#         torsions.append(theta)
+
+#     return torsions
 
 def compute_cos_torsion_mdraj(traj, angle_index):
     """
@@ -215,8 +253,16 @@ def correlations_features(evec, traj, list_of_functions, list_of_params=None, pr
             if progress_bar:
                 bar.value += 1
     else:
-        for funcs, pars in zip(list_of_functions, list_of_params):
-            correlations.append(compute_correlation(evec, eval(funcs +'(traj, pars)')))
+        for funcs, pars in zip(list_of_functions, list_of_params): 
+            if (funcs=='scan'):
+                
+                tors = compute_torsion_mdraj(traj, pars)
+                angs = np.linspace(0,np.pi,25)
+                cor_scan = [np.abs(compute_correlation(evec,np.sin(tors+a))) for a in angs] 
+                correlations.append( np.max(cor_scan ) ) 
+                
+            else:
+                correlations.append(compute_correlation(evec, eval(funcs +'(traj, pars)')))
 
             if progress_bar:
                 bar.value += 1

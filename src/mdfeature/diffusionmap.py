@@ -115,7 +115,7 @@ def compute_target_measure(energy, kT, energy_unit):
     return qTargetDistribution
 
 
-def compute_diffusionmaps(traj_orig, nrpoints=None, epsilon='bgh', nrneigh=64, weights=None, weight_params={}):
+def compute_diffusionmaps(traj_orig, nrpoints=None, epsilon='bgh', nrneigh=64, weights=None, weight_params={},verbose=False):
     """
     Compute diffusionmaps using pydiffmap.
 
@@ -129,14 +129,18 @@ def compute_diffusionmaps(traj_orig, nrpoints=None, epsilon='bgh', nrneigh=64, w
     """
 
     # subsampling
-    landmark_indices = np.random.choice(np.arange(len(traj_orig.xyz)), size=nrpoints)
+    if (nrpoints>=len(traj_orig.xyz)):
+        landmark_indices = np.arange(len(traj_orig.xyz))
+    else:
+        landmark_indices = np.random.choice(np.arange(len(traj_orig.xyz)), size=nrpoints,replace=False)
 
     traj = md.Trajectory(traj_orig.xyz[landmark_indices], traj_orig.topology)
     traj = traj.superpose(traj[0])
 
-    print(traj_orig)
-    print('Subsampled to')
-    print(traj)
+    if (verbose):
+        print(traj_orig)
+        print('Subsampled to')
+        print(traj)
 
     # computation of weights for tmdmap
     if weights == 'compute':
@@ -150,8 +154,9 @@ def compute_diffusionmaps(traj_orig, nrpoints=None, epsilon='bgh', nrneigh=64, w
         kT = kB * T * kelvin
 
         E = compute_energy(traj.xyz, simulation, positions_unit, energy_unit)
-        print('Energy has shape')
-        print(E.shape)
+        if (verbose):
+            print('Energy has shape')
+            print(E.shape)
 
         number_of_atoms = traj.xyz.shape[1]
 
@@ -172,7 +177,8 @@ def compute_diffusionmaps(traj_orig, nrpoints=None, epsilon='bgh', nrneigh=64, w
     Xresh = traj.xyz.reshape(traj.xyz.shape[0], traj.xyz.shape[1]*traj.xyz.shape[2])
 
     if weights is None:
-        print('Computing vanilla diffusionmap')
+        if (verbose):
+            print('Computing vanilla diffusionmap')
         mydmap = dfm.DiffusionMap.from_sklearn(epsilon = epsilon, alpha = 0.5, k=nrneigh, kernel_type='gaussian', n_evecs=5, neighbor_params=None,
                      metric='euclidean', metric_params=None, weight_fxn=None, density_fxn=None, bandwidth_type="-1/(d+2)",
                      bandwidth_normalize=False, oos='nystroem')
@@ -180,14 +186,16 @@ def compute_diffusionmaps(traj_orig, nrpoints=None, epsilon='bgh', nrneigh=64, w
         mydmap.fit(Xresh)
 
     elif weights == 'compute':
-        print('Computing TMDmap with target measure exp(-beta(V(x)))')
+        if (verbose):
+            print('Computing TMDmap with target measure exp(-beta(V(x)))')
         mydmap = dfm.DiffusionMap.from_sklearn(epsilon = epsilon, alpha = 1.0, k=nrneigh, kernel_type='gaussian', n_evecs=5, neighbor_params=None,
                      metric='euclidean', metric_params=None, weight_fxn=weight_fxn, density_fxn=None, bandwidth_type="-1/(d+2)",
                      bandwidth_normalize=False, oos='nystroem')
         mydmap.fit(Xresh)
 
     elif weights == 'explicit':
-        print('Computing TMDmap with explicit weights')
+        if (verbose):
+            print('Computing TMDmap with explicit weights')
         mydmap = tmdmap.DiffusionMap(epsilon = epsilon, alpha = 0.5, k=nrneigh, kernel_type='gaussian', n_evecs=5, neighbor_params=None, metric='euclidean', metric_params=None)
         mydmap.fit(Xresh, weights=weight_params['weights'])
     else:
