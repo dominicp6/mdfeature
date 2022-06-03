@@ -83,3 +83,7 @@ setup(
 #            'pyDiffMap = pyDiffMap.cli:main',
 #        ]
 #    },
+
+
+#TODO:
+# Add notes on installation - conda environment and pip install pyDiffMap

@@ -1,0 +1,10 @@
+name: diffusion
+dependencies:
+  - python>3.9
+  - numpy
+  - matplotlib
+  #- pydiffmap
+  - openmmtools
+  - openmm
+  - scipy
+  - scikit-learn

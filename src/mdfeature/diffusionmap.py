@@ -4,18 +4,19 @@ This module allows computation of the diffusionmaps.
 .. moduleauthor:: ZofiaTr
 """
 
-from simtk.openmm import *
-from simtk.openmm.app import *
+from openmm import *
+from openmm.app import *
 from simtk.unit import *
 from matplotlib.pyplot import cm
 import mdtraj as md
 import time
 import numpy as np
+import subprocess
 from openmmtools.constants import kB
-from sklearn.neighbors.kde import KernelDensity
+from sklearn.neighbors import KernelDensity
 
-import pydiffmap.diffusion_map as dfm
-import pydiffmap_weights.diffusion_map as tmdmap
+import pydiffmap_weights.TMDmap_explicit_weights as tmdmap
+import pydiffmap_weights.LSD_diffusion_map as lsdmap
 
 def energy(state, simulation):
     """
@@ -66,7 +67,7 @@ def compute_target_measure(energy, kT, energy_unit):
 import pydiffmap.diffusion_map as dfm
 import sys
 sys.path.append('/Users/zofiatrst/Code/mdfeature/src/')
-import pydiffmap_weights.diffusion_map as tmdmap
+import pydiffmap_weights.TMDmap_explicit_weights as tmdmap
 from openmmtools.constants import kB
 
 def energy(state, simulation):
@@ -115,7 +116,7 @@ def compute_target_measure(energy, kT, energy_unit):
     return qTargetDistribution
 
 
-def compute_diffusionmaps(traj_orig, nrpoints=None, epsilon='bgh', nrneigh=64, weights=None, weight_params={}):
+def compute_diffusionmaps(traj_orig, nrpoints=None, epsilon='bgh', nrneigh=64, weights=None, weight_params={}, type=None):
     """
     Compute diffusionmaps using pydiffmap.
 
@@ -124,11 +125,13 @@ def compute_diffusionmaps(traj_orig, nrpoints=None, epsilon='bgh', nrneigh=64, w
     :param epsilon: epsilon parameter in diffusionmap construction.
     :param int nrneigh: number of neighbors in diffusionmap construction.
     :param str weights:  if None vanilla diffusionmap, if 'compute' then TMDmap correction (requires also weight_params['simulation']=openmm.Simulation and weight_params['temperature']=double). If 'explicit' then ndarray of weights should be passed as a key in the dictionary weight_params['weights'].  If 'explicit' is computed using an old version of pydiffmap which allows for weights to be ndarrays.
+    :param str type: options, "noraml", "TMDmap", "explicit", "LSDmap", if None then run vanilla diffusionmap.
 
     :rtype: pydiffmap.diffusion_map.DiffusionMap, mdtraj.Trajectory
     """
 
     # subsampling
+    #TODO check it works with None for nrpoints
     landmark_indices = np.random.choice(np.arange(len(traj_orig.xyz)), size=nrpoints)
 
     traj = md.Trajectory(traj_orig.xyz[landmark_indices], traj_orig.topology)
@@ -139,7 +142,7 @@ def compute_diffusionmaps(traj_orig, nrpoints=None, epsilon='bgh', nrneigh=64, w
     print(traj)
 
     # computation of weights for tmdmap
-    if weights == 'compute':
+    if type == "TMDmap":
         simulation = weight_params['simulation']
 
         positions = simulation.context.getState(getPositions=True).getPositions()
@@ -171,7 +174,7 @@ def compute_diffusionmaps(traj_orig, nrpoints=None, epsilon='bgh', nrneigh=64, w
 
     Xresh = traj.xyz.reshape(traj.xyz.shape[0], traj.xyz.shape[1]*traj.xyz.shape[2])
 
-    if weights is None:
+    if type is None or type == "normal":
         print('Computing vanilla diffusionmap')
         mydmap = dfm.DiffusionMap.from_sklearn(epsilon = epsilon, alpha = 0.5, k=nrneigh, kernel_type='gaussian', n_evecs=5, neighbor_params=None,
                      metric='euclidean', metric_params=None, weight_fxn=None, density_fxn=None, bandwidth_type="-1/(d+2)",
@@ -179,17 +182,36 @@ def compute_diffusionmaps(traj_orig, nrpoints=None, epsilon='bgh', nrneigh=64, w
 
         mydmap.fit(Xresh)
 
-    elif weights == 'compute':
+    elif type == "TMDmap":
+        # TODO why alpha different here?
         print('Computing TMDmap with target measure exp(-beta(V(x)))')
         mydmap = dfm.DiffusionMap.from_sklearn(epsilon = epsilon, alpha = 1.0, k=nrneigh, kernel_type='gaussian', n_evecs=5, neighbor_params=None,
                      metric='euclidean', metric_params=None, weight_fxn=weight_fxn, density_fxn=None, bandwidth_type="-1/(d+2)",
                      bandwidth_normalize=False, oos='nystroem')
         mydmap.fit(Xresh)
 
-    elif weights == 'explicit':
+    elif type == 'explicit':
+        # TODO work out what explicit weights means
         print('Computing TMDmap with explicit weights')
-        mydmap = tmdmap.DiffusionMap(epsilon = epsilon, alpha = 0.5, k=nrneigh, kernel_type='gaussian', n_evecs=5, neighbor_params=None, metric='euclidean', metric_params=None)
+        mydmap = tmdmap.DiffusionMap(epsilon = epsilon, alpha = 0.5, k=nrneigh, kernel_type='gaussian', n_evecs=5, neighbor_params=None,
+                                     metric='euclidean', metric_params=None)
         mydmap.fit(Xresh, weights=weight_params['weights'])
+
+    elif type == "LSDmap":
+        # TODO: implement data and LSDMap directory checks
+        mydmap = lsdmap.LSDMap(epsilon = epsilon, alpha= 0.5, k=nrneigh, metric='euclidean', metric_params=None)
+        dmap_obj = mydmap.fit(traj)
+        print('evals')
+        print(dmap_obj.evals)
+        print(dmap_obj.evals.shape)
+        print('evecs')
+        print(dmap_obj.evecs)
+        print(dmap_obj.evecs.shape)
+        print('dmap')
+        print(dmap_obj.dmap)
+        print(dmap_obj.dmap.shape)
+        pass
+
     else:
         raise
 

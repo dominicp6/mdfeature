@@ -5,9 +5,9 @@ This module contains functions facilitating feature selection.
 .. moduleauthor:: ZofiaTr
 """
 
-from simtk.openmm import *
-from simtk.openmm.app import *
-from simtk.unit import *
+from openmm import *
+from openmm.app import *
+from openmm.unit import *
 from matplotlib.pyplot import cm
 import mdtraj as md
 import time
@@ -15,6 +15,8 @@ import numpy as np
 from scipy import stats
 from itertools import combinations
 from ipywidgets import IntProgress
+from IPython.display import display
+from mdfeature.utils import remove_corresponding_entries_with_nans
 
 def compute_torsion(coordinates, i, j, k, l):
     """
@@ -183,6 +185,8 @@ def compute_correlation(v, cv, coeff='pearson', minmax=False):
         v = (v - np.min(v))/(np.max(v)-np.min(v))
         cv = (cv - np.min(cv))/(np.max(cv)-np.min(cv))
 
+    v, cv = remove_corresponding_entries_with_nans(v, cv)
+
     if coeff == 'pearson':
         return stats.pearsonr(v, cv)[0]
     elif coeff == 'spearmanr':
@@ -254,7 +258,7 @@ def create_torsions_list(atoms, size=None, print_list=True, append_to=None):
     """
     Create list of indices for torsion angles.
 
-    :param atoms: if np.int - number of atoms to create the combinations from. If list of ints, combinations of these indeces will be generated.
+    :param atoms: if np.int - number of atoms to create the combinations from. If list of ints, combinations of these indices will be generated.
     :param size: number of randomly selected quadruples. If size is None, select all, if int, randomly choose int many combinations.
     :param bool print_list: print the generated list.
     :param list append_to: append to an existing list.
