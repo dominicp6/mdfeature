@@ -131,14 +131,17 @@ def compute_diffusionmaps(traj_orig, nrpoints=None, epsilon='bgh', nrneigh=64, w
     """
 
     # subsampling
-    #TODO check it works with None for nrpoints
-    landmark_indices = np.random.choice(np.arange(len(traj_orig.xyz)), size=nrpoints)
+    if nrpoints is None:
+        landmark_indices = np.arange(len(traj_orig.xyz))
+        print('Running diffusion maps with no subsampling.')
+    else:
+        landmark_indices = np.random.choice(np.arange(len(traj_orig.xyz)), size=nrpoints)
+        print(traj_orig)
+        print('Subsampled to')
 
     traj = md.Trajectory(traj_orig.xyz[landmark_indices], traj_orig.topology)
     traj = traj.superpose(traj[0])
 
-    print(traj_orig)
-    print('Subsampled to')
     print(traj)
 
     # computation of weights for tmdmap

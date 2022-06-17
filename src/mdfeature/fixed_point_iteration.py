@@ -77,7 +77,7 @@ def compute_F(Q, X, x, gamma):
     G = compute_G(Q, X, x)
     min_deltaQ2 = min([dQ2(Q, i) for i in range(len(Q) - 1)])
 
-    return 1/(min_deltaQ2 * gamma)**2 * G * G.T
+    return 1/(min_deltaQ2 * gamma)**2 * (G + G.T)
 
 
 def update_X(old_X, C, Q, gamma):
@@ -97,12 +97,12 @@ def compute_error(old_X, new_X):
     return np.linalg.norm(np.sum(new_X, axis=1) - np.sum(old_X, axis=1))
 
 
-def fit_MSM_with_gamma_smoothing(counts, coordinates, gamma, error):
+def fit_MSM_with_gamma_smoothing(counts, coordinates, gamma, err):
     old_X = (counts + counts.T) / (2 * np.sum(counts))
     current_err = float('inf')
 
     iterations = 0
-    while current_err > error:
+    while current_err > err:
         new_X = update_X(old_X, counts, coordinates, gamma)
         current_err = compute_error(old_X, new_X)
         old_X = new_X
@@ -121,7 +121,7 @@ if __name__ == "__main__":
     C = np.array([[1000, 50, 20, 10], [48, 50, 1, 1], [1, 1, 600, 40], [9, 7, 33, 300]])
 
     stationary_distribution, transition_matrix = fit_MSM_with_gamma_smoothing(counts=C, coordinates=Q, gamma=1.1,
-                                                                              error=0.0001)
+                                                                              err=0.0001)
 
     fig = plt.figure(figsize=(7, 7))
     plt.imshow(transition_matrix)

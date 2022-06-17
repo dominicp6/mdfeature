@@ -8,9 +8,9 @@ import mdfeature.fixed_point_iteration as fpi
 import scipy.integrate as integrate
 
 from autoimpute.imputations import MiceImputer
-from scipy.signal import savgol_filter
 from scipy.signal import find_peaks
 from itertools import permutations
+from math import ceil
 
 
 def interpolate_function(x, y, x_to_evaluate):
@@ -42,7 +42,7 @@ class MSM():
         self.state_centers = state_centers
         self.number_of_states = len(state_centers)
         self.sorted_state_centers = np.sort(state_centers)
-        self.diffusion_coeff_domain = self.compute_diffusion_coefficient_domain()
+        #self.diffusion_coeff_domain = self.compute_diffusion_coefficient_domain()
         self.stationary_distribution = None
         self.transition_matrix = None
 
@@ -73,25 +73,35 @@ class KramersRateEvaluator():
 
         return array
 
-    def _compute_free_energy_surface(self, time_series, bins=200):
+    def _compute_free_energy_surface(self, time_series, beta, bins=200, impute=True):
         counts, coordinates = np.histogram(time_series, bins=bins)
-        with np.errstate(divide='ignore'):
-            free_energy = self._replace_inf_with_nan(-np.log(counts))
+        coordinates = coordinates[:-1]
 
-        if np.isnan(free_energy).any():
-            warnings.warn(f"NaN values were found in the free energy calculation. "
-                          f"Consider using a longer trajectory or rerunning with fewer bins (currently bins={bins}). "
-                          f"Fixing with imputation for now.")
-            if self.verbose is True:
-                print(f'Note: Of the {len(free_energy)} free energy evaluations, '
-                      f'{np.count_nonzero(np.isnan(free_energy))} were NaN values.')
-            df = pd.DataFrame({'CV': coordinates[:-1], 'F': free_energy})
-            output_df = self.imputer.fit_transform(df)[0][1]
-            free_energy = output_df.F
+        if impute:
+            with np.errstate(divide='ignore'):
+                normalised_counts = counts / np.sum(counts)
+                free_energy = (1/beta) * self._replace_inf_with_nan(-np.log(normalised_counts))
+
+            if np.isnan(free_energy).any():
+                warnings.warn(f"NaN values were found in the free energy calculation. "
+                              f"Consider using a longer trajectory or rerunning with fewer bins (currently bins={bins}). "
+                              f"Fixing with imputation for now.")
+                if self.verbose is True:
+                    print(f'Note: Of the {len(free_energy)} free energy evaluations, '
+                          f'{np.count_nonzero(np.isnan(free_energy))} were NaN values.')
+                df = pd.DataFrame({'CV': coordinates, 'F': free_energy})
+                output_df = self.imputer.fit_transform(df)[0][1]
+                free_energy = output_df.F
+            else:
+                pass
         else:
-            pass
+            robust_counts = counts[np.where(counts > 25)]
+            normalised_counts = robust_counts / np.sum(counts)
+            free_energy = - (1/beta) * np.log(normalised_counts)
+            coordinates = coordinates[np.where(counts > 25)]
 
-        self.coordinates = coordinates[:-1]
+
+        self.coordinates = coordinates
         self.free_energy = free_energy
 
     def _compute_coordinate_mean_sq_difference(self):
@@ -119,9 +129,7 @@ class KramersRateEvaluator():
                  cluster_type='kmeans',
                  options={'k': 10, 'stride': 5, 'max_iter': 150,
                           'max_centers': 100, 'metric':'euclidean', 'n_jobs': None, 'dmin': None},
-                 lag=1,
-                 smoothing=False,
-                 gamma=0.1):
+                 lag=1):
 
         if cluster_type == 'kmeans':
             cluster = pyemma.coordinates.cluster_kmeans(time_series,
@@ -141,62 +149,89 @@ class KramersRateEvaluator():
         cluster_centers = cluster.clustercenters.flatten()
         self.msm = MSM(state_centers=cluster_centers)
         discrete_traj = self._relabel_trajectory_by_coordinate_chronology(traj=discrete_traj)
-        counts = self._compute_counts_matrix(discrete_traj, lag=lag)
 
-        if not smoothing:
-            frequency_counts = np.unique(discrete_traj, return_counts=True)[1]
-            stationary_distribution = frequency_counts/np.sum(frequency_counts)
-            transition_matrix = fpi.fit_MSM_from_stationary_distribution(counts, stationary_distribution, err=0.0001)
-        else:
-            stationary_distribution, transition_matrix = fpi.fit_MSM_with_gamma_smoothing(counts,
-                                                                                          self.coordinates,
-                                                                                          gamma,
-                                                                                          err=0.0001)
+        # Implied Timescale Analysis
+        if self.verbose:
+            print('MSM Implied Timescale Analysis')
+            lags = [1, 2, 5, 10, 15, 20, 25, 30, 35, 40]
+            its = pyemma.msm.its(discrete_traj, lags=lags, nits=10, reversible=True, connected=True)
+            pyemma.plots.plot_implied_timescales(its, ylog=False)
 
-        self.msm.set_stationary_distribution(stationary_distribution)
-        self.msm.set_transition_matrix(transition_matrix)
+        msm = pyemma.msm.estimate_markov_model(dtrajs=discrete_traj, lag=lag)
+        self.msm.set_stationary_distribution(msm.stationary_distribution)
+        self.msm.set_transition_matrix(msm.transition_matrix)
 
-        if self.verbose is True:
-            print(f'MSM created with {self.msm.number_of_states} states.')
-            fig = plt.figure(figsize=(15,5))
-            plt.subplot(1, 2, 1)
-            plt.imshow(self.msm.transition_matrix)
-            plt.xlabel('j', fontsize=16)
-            plt.ylabel('i', fontsize=16)
-            plt.title(r'MSM Transition Matrix $\mathbf{P}$', fontsize=16)
-            plt.colorbar()
-            plt.subplot(1, 2, 2)
-            plt.plot(self.msm.stationary_distribution, color='k')
-            plt.xlabel('i', fontsize=16)
-            plt.ylabel(r'$\pi(i)$', fontsize=16)
-            plt.title(r'MSM Stationary Distribution $\mathbf{\pi}$', fontsize=16)
-            plt.show()
+        # Chapman-Kolmogorov Test
+        if self.verbose:
+            print('MSM Chapman-Kolmogorov Test')
+            ck_test = msm.cktest(min(msm.nstates, 4))
+            pyemma.plots.plot_cktest(ck_test)
 
-    def _compute_diffusion_coefficients(self):
-        diff_coeffs = np.zeros(len(self.msm.sorted_state_centers)-1)
-        for idx in range(len(self.msm.sorted_state_centers)-1):
-            delta_coord_2 = (self.msm.sorted_state_centers[idx+1]-self.msm.sorted_state_centers[idx])**2
-            diff_coeffs[idx] = delta_coord_2 * \
-                               (self.msm.transition_matrix[idx, idx+1]*self.msm.transition_matrix[idx+1, idx])**(0.5)
+        print(f'MSM created with {self.msm.number_of_states} states, using lag time {lag}.')
+        fig = plt.figure(figsize=(15,5))
+        plt.subplot(1, 2, 1)
+        plt.imshow(self.msm.transition_matrix)
+        plt.xlabel('j', fontsize=16)
+        plt.ylabel('i', fontsize=16)
+        plt.title(r'MSM Transition Matrix $\mathbf{P}$', fontsize=16)
+        plt.colorbar()
+        plt.subplot(1, 2, 2)
+        plt.plot(self.msm.stationary_distribution, color='k')
+        plt.xlabel('i', fontsize=16)
+        plt.ylabel(r'$\pi(i)$', fontsize=16)
+        plt.title(r'MSM Stationary Distribution $\mathbf{\pi}$', fontsize=16)
+        plt.show()
 
-        self.diffusion_coefficients = diff_coeffs
 
-    def _compute_smoothed_diffusion_coefficients(self, sigma=0.01):
-        dx = self.msd_coordinate
+    def _compute_diffusion_coefficients(self, step_size, lag):
+        tau = lag * step_size
 
-        interpolated_diff_coeffs = interpolate.interp1d(self.msm.diffusion_coeff_domain,
-                                                        self.diffusion_coefficients, fill_value='extrapolate')
-        self.smoothed_diff_coefficients_range = np.arange(min(self.msm.state_centers), max(self.msm.state_centers), dx)
-        sampled_diffusion_coeffs = interpolated_diff_coeffs(self.smoothed_diff_coefficients_range)
+        def calculate_c(X, n, P):
+            return np.sum([(X[j] - X) ** n * P[:, j] for j in range(len(X))], axis=0)
 
-        gx = np.arange(-3 * sigma, 3 * sigma, dx)
-        gaussian = (1 / np.sqrt(2 * np.pi * sigma ** 2)) * np.exp(-(gx / sigma) ** 2 / 2)
-        smoothed_diffusion_coefficients = np.convolve(sampled_diffusion_coeffs, gaussian, mode="same")
+        c1 = calculate_c(self.msm.sorted_state_centers, n=1, P=self.msm.transition_matrix)
+        c2 = calculate_c(self.msm.sorted_state_centers, n=2, P=self.msm.transition_matrix)
 
-        self.smoothed_diffusion_coefficients = smoothed_diffusion_coefficients
+        self.diffusion_coefficients = (c2 - c1**2)/(2*tau)
+
+        # diff_coeffs = np.zeros(len(self.msm.sorted_state_centers)-1)
+        # for idx in range(len(self.msm.sorted_state_centers)-1):
+        #     delta_coord_2 = (self.msm.sorted_state_centers[idx+1]-self.msm.sorted_state_centers[idx])**2
+        #     diff_coeffs[idx] = (1/step_size) * delta_coord_2 * \
+        #                        (self.msm.transition_matrix[idx, idx+1]*self.msm.transition_matrix[idx+1, idx])**(0.5)
+        #
+        # self.diffusion_coefficients = diff_coeffs
+
+    def _gaussian_smooth(self, x, y, dx, sigma, gaussian_width=3):
+        interp = interpolate.interp1d(x, y, fill_value='extrapolate')
+        interpolated_x = np.arange(min(x), max(x)+dx/2, dx)
+        interpolated_y = interp(interpolated_x)
+        gaussian_x = np.arange(- gaussian_width * sigma, gaussian_width * sigma, dx)
+        # multiply by dx to ensure area conservation after convolution
+        gaussian = dx * (1 / np.sqrt(2 * np.pi * sigma ** 2)) * np.exp(-(gaussian_x / sigma) ** 2 / 2)
+        smoothed_y = np.convolve(interpolated_y, gaussian, mode='same')
+
+        return interpolated_x, smoothed_y
+
+    def _smooth_D_and_F(self, sigmaD=0.01, sigmaF=0.01):
+        self.smoothed_diff_coefficients_range, self.smoothed_diffusion_coefficients \
+            = self._gaussian_smooth(x=self.msm.sorted_state_centers, y=self.diffusion_coefficients,
+                                    dx=self.msd_coordinate, sigma=sigmaD)
+        self.smoothed_free_energy_range, self.smoothed_free_energy \
+            = self._gaussian_smooth(x=self.coordinates, y=self.free_energy, dx=self.msd_coordinate, sigma=sigmaF)
+
+    def _get_digit_text_width(self, fig, axis):
+        r = fig.canvas.get_renderer()
+        t = axis.text(0.5, 0.5, "1")
+
+        bb = t.get_window_extent(renderer=r).transformed(axis.transData.inverted())
+
+        t.remove()
+
+        return bb.width/2
 
     def _plot_free_energy_landscape(self):
-        fig = plt.figure(figsize=(15, 5))
+        fig = plt.figure(figsize=(15, 7))
         ax1 = plt.subplot()
         l1, = ax1.plot(self.smoothed_diff_coefficients_range, self.smoothed_diffusion_coefficients, color='red')
         ax1.set_ylim((min(self.smoothed_diffusion_coefficients)
@@ -205,8 +240,10 @@ class KramersRateEvaluator():
                       +0.1*(max(self.smoothed_diffusion_coefficients)-min(self.smoothed_diffusion_coefficients))))
         ax2 = ax1.twinx()
         l2, = ax2.plot(self.coordinates, self.smoothed_free_energy, color='k')
+        digit_width = self._get_digit_text_width(fig, ax2)
         plt.legend([l1, l2], ["diffusion_coefficient", "free_energy"])
-        print(f"Free energy profile suggests {len(self.free_energy_minima)} minima.")
+        if self.verbose:
+            print(f"Free energy profile suggests {len(self.free_energy_minima)} minima.")
         for idx, minima in enumerate(self.free_energy_minima):
             print("Minima ", (round(minima[0], 3), round(minima[1], 3)))
             plt.text(minima[0], minima[1]-0.075*(max(self.smoothed_free_energy)-min(self.smoothed_free_energy)), f"S{idx}",
@@ -214,21 +251,25 @@ class KramersRateEvaluator():
         voronoi_cell_boundaries = [(self.msm.sorted_state_centers[i+1]+self.msm.sorted_state_centers[i])/2
                                    for i in range(len(self.msm.sorted_state_centers)-1)]
         for boundary in voronoi_cell_boundaries:
-            plt.vlines(boundary, ymin=min(self.smoothed_free_energy)-0.1*(max(self.smoothed_free_energy)-min(self.smoothed_free_energy)), ymax=min(self.smoothed_free_energy), linestyle='--', color='k')
-        for state_index in range(len(voronoi_cell_boundaries)+1):
-            if state_index == 0:
-                plt.text((voronoi_cell_boundaries[state_index]+min(self.coordinates))/2,
-                         min(self.smoothed_free_energy)-0.075*(max(self.smoothed_free_energy)-min(self.smoothed_free_energy)), f"{state_index}",
-                         fontsize=12, color='k')
-            elif state_index == len(voronoi_cell_boundaries):
-                plt.text((max(self.coordinates)+voronoi_cell_boundaries[state_index-1])/2,
-                         min(self.smoothed_free_energy)-0.075*(max(self.smoothed_free_energy)-min(self.smoothed_free_energy)), f"{state_index}",
-                         fontsize=12, color='k')
-            else:
-                plt.text((voronoi_cell_boundaries[state_index]+voronoi_cell_boundaries[state_index-1])/2,
-                         min(self.smoothed_free_energy)-0.075*(max(self.smoothed_free_energy)-min(self.smoothed_free_energy)), f"{state_index}",
-                         fontsize=12, color='k')
-        ax1.set_xlabel('DC 1', fontsize=16)
+            plt.vlines(boundary, ymin=min(self.smoothed_free_energy)-0.2*(max(self.smoothed_free_energy)-min(self.smoothed_free_energy)), ymax=min(self.smoothed_free_energy)-0.1*(max(self.smoothed_free_energy)-min(self.smoothed_free_energy)), linestyle='--', color='k')
+        # only display state numbers when there are a relatively small number of states
+        if len(voronoi_cell_boundaries) < 50:
+            for state_index in range(len(voronoi_cell_boundaries)+1):
+                if state_index == 0:
+                    plt.text((voronoi_cell_boundaries[state_index]+min(self.coordinates))/2 - digit_width*ceil(np.log10(state_index+1)),
+                             min(self.smoothed_free_energy)-0.175*(max(self.smoothed_free_energy)-min(self.smoothed_free_energy)), f"{state_index}",
+                             fontsize=12, color='k')
+                elif state_index == len(voronoi_cell_boundaries):
+                    plt.text((max(self.coordinates)+voronoi_cell_boundaries[state_index-1])/2 - digit_width*ceil(np.log10(state_index+1)),
+                             min(self.smoothed_free_energy)-0.175*(max(self.smoothed_free_energy)-min(self.smoothed_free_energy)), f"{state_index}",
+                             fontsize=12, color='k')
+                else:
+                    plt.text((voronoi_cell_boundaries[state_index]+voronoi_cell_boundaries[state_index-1])/2 - digit_width*ceil(np.log10(state_index+1)),
+                             min(self.smoothed_free_energy)-0.175*(max(self.smoothed_free_energy)-min(self.smoothed_free_energy)), f"{state_index}",
+                             fontsize=12, color='k')
+        ax1.set_xlabel('Q', fontsize=16)
+        ax1.set_ylabel(r"Diffusion Coefficient ($Q^2 / s$)", fontsize=16)
+        ax2.set_ylabel(r"Free Energy ($kJ/mol$)", fontsize=16)
         plt.title('Free Energy Landscape', fontsize=16)
         plt.show()
 
@@ -260,37 +301,41 @@ class KramersRateEvaluator():
             initial_state = rate[0][0]
             final_state = rate[0][1]
             transition_rate = rate[1]
-            print(fr"S{initial_state} --> S{final_state} : {round(transition_rate,4)}")
+            print(fr"S{initial_state} --> S{final_state} : {'{:e}'.format(transition_rate)}")
         print("-"*25)
 
-    def _get_minima(self, minima_prominance, include_endpoint_minima):
+    def _get_minima(self, minima_prominance, include_endpoint_minima, ignore_high_energy_minima):
         number_of_minima = 0
         prominance = minima_prominance
         free_energy_minima = None
         while number_of_minima < 2:
             free_energy_minima = find_peaks(-self.smoothed_free_energy,
                                             prominence=prominance)[0]
+            energy = [self.smoothed_free_energy[index] for index in free_energy_minima]
+            if ignore_high_energy_minima:
+                free_energy_minima = [minima for idx, minima in enumerate(free_energy_minima)
+                                      if not np.abs(energy[idx]) > min(self.smoothed_free_energy)
+                                      + 0.8*(max(self.smoothed_free_energy)-min(self.smoothed_free_energy))]
             number_of_minima = len(free_energy_minima)
             prominance *= 0.975
 
-        if prominance != minima_prominance:
-            warnings.warn(f"Automatically reduced prominance from {minima_prominance} to {round(prominance,3)} so as to find at least two minima.")
+        if prominance != minima_prominance*0.975:
+            warnings.warn(f"Automatically reduced prominance from {minima_prominance} to {round(prominance/0.975,3)} so as to find at least two minima.")
 
-        if self.smoothed_free_energy[0] < self.smoothed_free_energy[1]:
-            free_energy_minima = np.insert(free_energy_minima, 0, 0)
-        if self.smoothed_free_energy[-1] < self.smoothed_free_energy[-2]:
-            free_energy_minima = np.append(free_energy_minima, len(self.smoothed_free_energy)-1)
+        if include_endpoint_minima:
+            if self.smoothed_free_energy[0] < self.smoothed_free_energy[1]:
+                free_energy_minima = np.insert(free_energy_minima, 0, 0)
+            if self.smoothed_free_energy[-1] < self.smoothed_free_energy[-2]:
+                free_energy_minima = np.append(free_energy_minima, len(self.smoothed_free_energy)-1)
 
         return free_energy_minima
 
-    def _compute_kramers_rates(self, beta, sigma, minima_prominance, include_endpoint_minima):
-        self._compute_smoothed_diffusion_coefficients(sigma)
-        self.smoothed_free_energy = savgol_filter(self.free_energy, 15, 3)
-        free_energy_minima = self._get_minima(minima_prominance, include_endpoint_minima)
+    def _compute_kramers_rates(self, beta, sigmaD, sigmaF, minima_prominance, include_endpoint_minima, ignore_high_energy_minima):
+        self._smooth_D_and_F(sigmaD, sigmaF)
+        free_energy_minima = self._get_minima(minima_prominance, include_endpoint_minima, ignore_high_energy_minima)
         self.free_energy_minima = [(self.coordinates[minima], self.smoothed_free_energy[minima])
                                    for minima in free_energy_minima]
-        if self.verbose is True:
-            self._plot_free_energy_landscape()
+        self._plot_free_energy_landscape()
 
         well_integrand = self._compute_well_integrand(beta, self.smoothed_free_energy)
         barrier_integrand = self._compute_barrier_integrand(beta, self.smoothed_free_energy)
@@ -317,25 +362,27 @@ class KramersRateEvaluator():
     def fit(self,
             CV_time_series,
             beta,
-            sigma,
+            sigmaD,
+            sigmaF,
+            step_size,
+            impute_free_energy_nans=True,
+            ignore_high_energy_minima=True,
             cluster_type='kmeans',
             options={'k': 10, 'stride': 5, 'max_iter': 150,
-                     'max_centers': 1000, 'metric': 'euclidean', 'n_jobs': None, 'dmin': None},
+                     'max_centers': 1000, 'metric': 'euclidean',
+                     'n_jobs': None, 'dmin': None},
             lag=1,
-            smoothing=False,
-            gamma=0.1,
             bins=200,
             minima_prominance=1.5,
             include_endpoint_minima=True):
-        self._compute_free_energy_surface(time_series=CV_time_series, bins=bins)
+
+        self._compute_free_energy_surface(time_series=CV_time_series, beta=beta, bins=bins, impute=impute_free_energy_nans)
         self._compute_coordinate_mean_sq_difference()
         self._fit_MSM(time_series=CV_time_series,
                       lag=lag,
-                      smoothing=smoothing,
-                      gamma=gamma,
                       cluster_type=cluster_type,
                       options=options)
-        self._compute_diffusion_coefficients()
-        kramers_rates = self._compute_kramers_rates(beta, sigma, minima_prominance, include_endpoint_minima)
+        self._compute_diffusion_coefficients(step_size, lag)
+        kramers_rates = self._compute_kramers_rates(beta, sigmaD, sigmaF, minima_prominance, include_endpoint_minima, ignore_high_energy_minima)
 
         return kramers_rates
