@@ -4,7 +4,6 @@ import pandas as pd
 import pyemma
 import scipy.interpolate as interpolate
 import matplotlib.pyplot as plt
-import mdfeature.fixed_point_iteration as fpi
 import scipy.integrate as integrate
 
 from autoimpute.imputations import MiceImputer
@@ -12,6 +11,8 @@ from scipy.signal import find_peaks
 from itertools import permutations
 from math import ceil
 
+def RMS_difference(A, B):
+    return np.sqrt(np.mean((A-B)**2))
 
 def interpolate_function(x, y, x_to_evaluate):
     x_min = min(x)
@@ -42,7 +43,6 @@ class MSM():
         self.state_centers = state_centers
         self.number_of_states = len(state_centers)
         self.sorted_state_centers = np.sort(state_centers)
-        #self.diffusion_coeff_domain = self.compute_diffusion_coefficient_domain()
         self.stationary_distribution = None
         self.transition_matrix = None
 
@@ -125,6 +125,30 @@ class KramersRateEvaluator():
 
         return counts
 
+    def _compute_optimal_lag_time(self, step_size, discrete_traj, sigmaD, sigmaF, lag_times):
+        old_diffusion_coefficients = None
+        diffs = []
+        for lag in lag_times:
+            self.msm = pyemma.msm.estimate_markov_model(dtrajs=discrete_traj, lag=lag)
+            self._compute_diffusion_coefficients(step_size, lag)
+            self._smooth_D_and_F(sigmaD=sigmaD, sigmaF=sigmaF)
+            if old_diffusion_coefficients is not None:
+                diff = RMS_difference(old_diffusion_coefficients, self.smoothed_diffusion_coefficients)
+                diffs.append(diff)
+            old_diffusion_coefficients = self.diffusion_coefficients
+
+        index_optimal_lag = np.argmin(diffs)
+        optimal_lag = lag_times[index_optimal_lag]
+
+        if self.verbose:
+            plt.plot(lag_times[:-1], diffs, c='k')
+            plt.xlabel('Lag', fontsize=16)
+            plt.ylabel(r'RMSD $D(Q)$', fontsize=16)
+            plt.vlines(index_optimal_lag, min(diffs), max(diffs), c='r')
+            plt.show()
+
+        return optimal_lag
+
     def _fit_MSM(self, time_series,
                  cluster_type='kmeans',
                  options={'k': 10, 'stride': 5, 'max_iter': 150,
@@ -156,16 +180,18 @@ class KramersRateEvaluator():
             lags = [1, 2, 5, 10, 15, 20, 25, 30, 35, 40]
             its = pyemma.msm.its(discrete_traj, lags=lags, nits=10, reversible=True, connected=True)
             pyemma.plots.plot_implied_timescales(its, ylog=False)
+            plt.show()
 
         msm = pyemma.msm.estimate_markov_model(dtrajs=discrete_traj, lag=lag)
         self.msm.set_stationary_distribution(msm.stationary_distribution)
         self.msm.set_transition_matrix(msm.transition_matrix)
 
         # Chapman-Kolmogorov Test
-        if self.verbose:
-            print('MSM Chapman-Kolmogorov Test')
-            ck_test = msm.cktest(min(msm.nstates, 4))
-            pyemma.plots.plot_cktest(ck_test)
+        #if self.verbose:
+        #print('MSM Chapman-Kolmogorov Test')
+        #ck_test = msm.cktest(min(msm.nstates, 4))
+        #pyemma.plots.plot_cktest(ck_test)
+        #plt.show()
 
         print(f'MSM created with {self.msm.number_of_states} states, using lag time {lag}.')
         fig = plt.figure(figsize=(15,5))
@@ -194,13 +220,16 @@ class KramersRateEvaluator():
 
         self.diffusion_coefficients = (c2 - c1**2)/(2*tau)
 
-        # diff_coeffs = np.zeros(len(self.msm.sorted_state_centers)-1)
-        # for idx in range(len(self.msm.sorted_state_centers)-1):
-        #     delta_coord_2 = (self.msm.sorted_state_centers[idx+1]-self.msm.sorted_state_centers[idx])**2
-        #     diff_coeffs[idx] = (1/step_size) * delta_coord_2 * \
-        #                        (self.msm.transition_matrix[idx, idx+1]*self.msm.transition_matrix[idx+1, idx])**(0.5)
-        #
-        # self.diffusion_coefficients = diff_coeffs
+        if self.verbose:
+            # Perform Langevin dynamics check
+            print('Langevin Dynamics Test')
+            c4 = calculate_c(self.msm.sorted_state_centers, n=4, P=self.msm.transition_matrix)
+            D4 = (1 / (4 * 3 * 2 * tau)) * c4
+            plt.plot(self.msm.sorted_state_centers, D4/self.diffusion_coefficients**2, c='k')
+            plt.title("Langevin Dynamics Check", fontsize=16)
+            plt.ylabel(r"$D^{(4)}(Q)/D^{(2)}(Q)^2$", fontsize=16)
+            plt.xlabel(r"$Q$", fontsize=16)
+            plt.show()
 
     def _gaussian_smooth(self, x, y, dx, sigma, gaussian_width=3):
         interp = interpolate.interp1d(x, y, fill_value='extrapolate')
