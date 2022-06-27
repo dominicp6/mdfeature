@@ -22,8 +22,11 @@ class LangevinDynamics():
             self.gradLogProb = lambda x: np.array([float(array) for array in grad(log_prob)(x)])
         self.time_step = time_step
 
-    def simulate(self, number_of_steps, burn_in, seed=0):
-        num_processes = max(1, cpu_count()-1)
+    def simulate(self, number_of_steps, burn_in, seed=0, num_processes=None):
+        if num_processes is None:
+            num_processes = max(1, cpu_count()-1)
+        else:
+            assert isinstance(num_processes, int)
         steps_per_process = int(number_of_steps/num_processes)
         assert burn_in < steps_per_process
 
