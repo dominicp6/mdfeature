@@ -4,16 +4,18 @@ import matplotlib.pyplot as plt
 import scipy.integrate as integrate
 from mdfeature.MarkovStateModel import MSM
 import mdfeature.general_utils as gutl
+from autograd import grad
+from math import floor
 
 
-def implied_timescale_analysis(discrete_traj, lags):
-    print('MSM Implied Timescale Analysis')
+
+def implied_timescale_analysis(discrete_traj, lags, axs):
     its = pyemma.msm.its(discrete_traj, lags=lags, nits=10, reversible=True, connected=True)
-    pyemma.plots.plot_implied_timescales(its, ylog=False)
-    plt.show()
+    pyemma.plots.plot_implied_timescales(its, ylog=False, ax=axs[0, 0])
+    axs[0, 0].set_title('Implied Timescale Analysis')
 
 
-def diffusion_coefficient_sensitivity_analysis(cluster_centers, discrete_traj, lags, time_step):
+def diffusion_coefficient_sensitivity_analysis(cluster_centers, discrete_traj, lags, time_step, axs):
     msm = MSM(cluster_centers)
     old_D = None
     diffs = []
@@ -31,38 +33,41 @@ def diffusion_coefficient_sensitivity_analysis(cluster_centers, discrete_traj, l
     index_optimal_lag = np.argmin(diffs)
     optimal_lag = lags[index_optimal_lag]
 
-    plt.plot(lags[:-1], diffs, c='k')
-    plt.xlabel('Lag', fontsize=16)
-    plt.ylabel(r'RMSD $D(Q)$', fontsize=16)
-    plt.vlines(optimal_lag, min(diffs), max(diffs), color='r')
-    plt.show()
+    axs[1, 0].plot(lags[:-1], diffs, c='k')
+    axs[1, 0].set_xlabel('Lag', fontsize=16)
+    axs[1, 0].set_ylabel(r'RMSD $D(Q)$', fontsize=16)
+    axs[1, 0].vlines(optimal_lag, min(diffs), max(diffs), color='r')
     for idx, diff_coeffs in enumerate(diffusion_coefficients):
-        plt.plot(msm.sorted_state_centers, diff_coeffs, label="lag=" + str(lags[idx]))
-    plt.legend()
-    plt.xlabel(r'$Q$', fontsize=16)
-    plt.ylabel(r'$D(Q)$', fontsize=16)
-    plt.show()
+        axs[0, 1].plot(msm.sorted_state_centers, diff_coeffs, label="lag=" + str(lags[idx]))
+    axs[0, 1].legend()
+    axs[0, 1].set_xlabel(r'$Q$', fontsize=16)
+    axs[0, 1].set_ylabel(r'$D(Q)$', fontsize=16)
     # Perform Langevin dynamics check
+    maxima = []
     for idx, diff_coeffs in enumerate(diffusion_coefficients):
         c4 = msm.calculate_correlation_coefficient(n=4)
         tau = lags[idx] * time_step
         D4 = (1 / (4 * 3 * 2 * tau)) * c4
         error_ratio = D4 / diff_coeffs ** 2
         if min(error_ratio) < 0.25:
-            plt.plot(msm.sorted_state_centers, D4 / diff_coeffs ** 2, label="lag=" + str(lags[idx]))
-    plt.yscale('log')
-    plt.hlines(0.25, min(msm.sorted_state_centers), max(msm.sorted_state_centers), colors='r')
-    plt.title("Langevin Dynamics Check", fontsize=16)
-    plt.ylabel(r"$D^{(4)}(Q)/D^{(2)}(Q)^2$", fontsize=16)
-    plt.xlabel(r"$Q$", fontsize=16)
-    plt.legend()
+            axs[1, 1].plot(msm.sorted_state_centers, D4 / diff_coeffs ** 2, label="lag=" + str(lags[idx]))
+            maxima.append(max(D4 / diff_coeffs ** 2))
+    axs[1, 1].set_yscale('log')
+    axs[1, 1].hlines(0.25, min(msm.sorted_state_centers), max(msm.sorted_state_centers), colors='r')
+    axs[1, 1].set_title("Langevin Dynamics Check", fontsize=16)
+    axs[1, 1].set_ylabel(r"$D^{(4)}(Q)/D^{(2)}(Q)^2$", fontsize=16)
+    axs[1, 1].set_xlabel(r"$Q$", fontsize=16)
+    axs[1, 1].set_ylim(top=np.mean(maxima))
+    axs[1, 1].legend()
     plt.show()
 
 
 def lag_sensitivity_analysis(discrete_traj, cluster_centers, time_step):
-    lags = [1, 2, 3, 5, 7, 9, 12, 15, 19, 24, 30, 37, 45]
-    implied_timescale_analysis(discrete_traj, lags)
-    diffusion_coefficient_sensitivity_analysis(cluster_centers, discrete_traj, lags, time_step)
+    fig, axs = plt.subplots(2, 2)
+    fig.set_size_inches(16, 12)
+    lags = [1, 2, 3, 5, 10, 15, 20, 30, 50, 75, 100]
+    implied_timescale_analysis(discrete_traj, lags, axs)
+    diffusion_coefficient_sensitivity_analysis(cluster_centers, discrete_traj, lags, time_step, axs)
 
 
 def cluster_time_series(time_series, cluster_type, options):
@@ -89,6 +94,14 @@ def compute_barrier_integrand(evaluator_object, free_energy, beta):
             / gutl.linear_interp_coordinate_data(evaluator_object.smoothed_D_domain,
                                                  evaluator_object.smoothed_D,
                                                  evaluator_object.coordinates[x]) for x in range(len(free_energy))]
+
+
+def compute_well_integrand_from_potential(potential, beta, x_range):
+    return [np.exp(- beta * potential(x)) for x in x_range]
+
+
+def compute_barrier_integrand_from_potential(potential, beta, diffusion_function, x_range):
+    return [np.exp(beta * potential(x))/diffusion_function(x) for x in x_range]
 
 
 def compute_well_and_barrier_integrals(initial_x, final_x, mid_x, well_integrand, barrier_integrand, x_coords):
@@ -118,6 +131,21 @@ def compute_kramers_rate(transition, minima, well_integrand, barrier_integrand, 
 
     return kramers_rate
 
+
+def compute_kramers_rate_from_potential(potential, beta, start_position, end_position, diffusion_function):
+    x_range = np.arange(start_position, end_position, (end_position - start_position)/5000)
+    well_integrand = compute_well_integrand_from_potential(potential, beta, x_range)
+    barrier_integrand = compute_barrier_integrand_from_potential(potential, beta, diffusion_function, x_range)
+    well_integral, barrier_integral = compute_well_and_barrier_integrals(initial_x=0,
+                                                                         final_x=len(x_range),
+                                                                         mid_x=int(np.floor(len(x_range)/2)),
+                                                                         well_integrand=well_integrand,
+                                                                         barrier_integrand=barrier_integrand,
+                                                                         x_coords=x_range)
+    kramers_rate = (barrier_integral * well_integral) ** (-1)
+
+    return kramers_rate
+
 # Chapman-Kolmogorov Test
 # if self.verbose:
 # print('MSM Chapman-Kolmogorov Test')
@@ -132,3 +160,106 @@ def compute_kramers_rate(transition, minima, well_integrand, barrier_integrand, 
 #         counts[state, traj[idx+lag]] += 1
 #
 #     return counts
+
+
+def free_energy_estimate(samples, beta, minimum_counts=50):
+    # histogram
+    counts, coordinate = np.histogram(samples, bins=200)
+    robust_counts = counts[np.where(counts > minimum_counts)]
+    robust_coordinates = coordinate[np.where(counts > minimum_counts)]
+
+    # log noraml
+    normalised_counts = robust_counts / np.sum(counts)
+    with np.errstate(divide='ignore'):
+        free_energy = - (1 / beta) * np.log(normalised_counts)
+
+    return free_energy, robust_coordinates
+
+
+def project_points_to_line(points, coords, theta):
+    # coords = (x0, y0), a point that the line goes through
+    # theta is the orientation of the line (e.g. theta = 0 is parallel to the x axis, theta = pi/2 is parallel to the y axis)
+    a = coords
+    b = coords + np.array([np.cos(theta), np.sin(theta)])
+    ap = points - a
+    ab = b - a
+    projected_points = np.dot(ap, ab) / np.dot(ab, ab)
+
+    return projected_points
+
+
+def relabel_trajectory_by_coordinate_chronology(traj, state_centers):
+    sorted_indices = np.argsort(np.argsort(state_centers))
+
+    # relabel states in trajectory
+    for idx, state in enumerate(traj):
+        traj[idx] = sorted_indices[traj[idx]]
+
+    return traj
+
+
+def compute_discrete_trajectory(trajectory, k=30):
+    cluster = pyemma.coordinates.cluster_kmeans(trajectory, k=k)
+    discrete_traj = cluster.dtrajs[0]
+    cluster_centers = cluster.clustercenters.flatten()
+    discrete_traj = relabel_trajectory_by_coordinate_chronology(discrete_traj, cluster_centers)
+    cluster_centers = np.sort(cluster_centers)
+
+    return discrete_traj, cluster_centers
+
+
+def calculate_cni(i, X, n, P):
+    return np.sum([(X[j] - X[i]) ** n * P[i, j] for j in range(len(X))])
+
+
+def calculate_c(X, n, P):
+    return np.array([calculate_cni(i, X, n, P) for i in range(len(X))])
+
+
+
+def correlation_coefficients_check(beta, potential, discrete_traj, cluster_centers, lag, time_step):
+    tau = lag * time_step
+
+    msm = pyemma.msm.estimate_markov_model(discrete_traj, lag)
+
+    x_min = min(cluster_centers);
+    x_max = max(cluster_centers)
+    x_range = np.arange(x_min, x_max, (x_max - x_min) / 1000)
+    grad_potential = grad(potential)
+
+    D1_theory = -beta * np.array([grad_potential(x) for x in x_range])
+    D2_theory = np.array([1 for x in x_range])
+
+    C1_theory = tau * D1_theory
+    C2_theory = 2 * D2_theory * tau + C1_theory ** 2
+
+    C1_exp = calculate_c(cluster_centers, 1, msm.transition_matrix)
+    C2_exp = calculate_c(cluster_centers, 2, msm.transition_matrix)
+
+    D1_exp = C1_exp / tau
+    D2_exp = (C2_exp - C1_exp ** 2) / (2 * tau)
+
+    fig, axs = plt.subplots(2, 2)
+    fig.set_size_inches(12, 8)
+
+    axs[0, 0].set_title('C1')
+    axs[0, 0].plot(x_range, C1_theory, label='theory')
+    axs[0, 0].plot(cluster_centers, C1_exp, label='exp')
+    axs[0, 0].legend()
+
+    axs[0, 1].set_title('C2')
+    axs[0, 1].plot(x_range, C2_theory, label='theory')
+    axs[0, 1].plot(cluster_centers, C2_exp, label='exp')
+    axs[0, 1].legend()
+
+    axs[1, 0].set_title('D1')
+    axs[1, 0].plot(x_range, D1_theory, label='theory')
+    axs[1, 0].plot(cluster_centers, D1_exp, label='exp')
+    axs[1, 0].legend()
+
+    axs[1, 1].set_title('D2')
+    axs[1, 1].plot(x_range, D2_theory, label='theory')
+    axs[1, 1].plot(cluster_centers, D2_exp, label='exp')
+    axs[1, 1].legend()
+
+    plt.show()

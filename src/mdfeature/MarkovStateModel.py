@@ -1,4 +1,5 @@
 import numpy as np
+import pyemma
 import matplotlib.pyplot as plt
 
 
@@ -11,6 +12,23 @@ class MSM:
         self.stationary_distribution = None
         self.transition_matrix = None
         self.lag = None
+        self.time_step = None
+        self.discrete_trajectory = None
+
+    def compute_states_for_range(self, given_range):
+        state_boundaries = [(self.sorted_state_centers[i + 1] + self.sorted_state_centers[i]) / 2
+                                   for i in range(len(self.sorted_state_centers) - 1)]
+        lower_value = given_range[0]
+        higher_value = given_range[1]
+        number_of_lower_states = len([boundary for boundary in state_boundaries if boundary < lower_value])
+        number_of_upper_states = len([boundary for boundary in state_boundaries if boundary > higher_value])
+
+        lower_state_index = number_of_lower_states
+        upper_state_index = self.number_of_states - number_of_upper_states
+
+        states_in_range = np.arange(lower_state_index, upper_state_index, 1)
+
+        return states_in_range
 
     def compute_diffusion_coefficient_domain(self):
         diffusion_coeff_domain = []
@@ -23,10 +41,17 @@ class MSM:
         self.stationary_distribution = stationary_distribution
 
     def set_transition_matrix(self, transition_matrix):
+        assert transition_matrix.shape[0] == len(self.sorted_state_centers)
         self.transition_matrix = transition_matrix
 
     def set_lag(self, lag):
         self.lag = lag
+
+    def set_time_step(self, time_step):
+        self.time_step = time_step
+
+    def set_discrete_trajectory(self, discrete_traj):
+        self.discrete_trajectory = discrete_traj
 
     def calculate_correlation_coefficient(self, n):
         assert self.transition_matrix is not None
@@ -66,3 +91,16 @@ class MSM:
         plt.ylabel(r'$\pi(i)$', fontsize=16)
         plt.title(r'MSM Stationary Distribution $\mathbf{\pi}$', fontsize=16)
         plt.show()
+
+    def compute_transition_rate(self,
+                                state_A: list[float, float],
+                                state_B: list[float, float]):
+        # Note lag must be the same as the lag used to define the Markov State Model
+        msm = pyemma.msm.estimate_markov_model(self.discrete_trajectory, lag=self.lag)
+        initial_states = self.compute_states_for_range(state_A)
+        final_states = self.compute_states_for_range(state_B)
+        mfpt = msm.mfpt(A=initial_states, B=final_states) * self.time_step
+
+        return 1 / mfpt
+
+

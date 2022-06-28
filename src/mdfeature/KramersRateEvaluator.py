@@ -19,7 +19,7 @@ class KramersRateEvaluator:
         self.imputer = MiceImputer(strategy={"F": "interpolate"}, n=1, return_list=True)
         self.default_clustering = default_clustering
         self.number_of_default_clusters = None if self.default_clustering is None \
-            else len(default_clustering.cluster_centers.flatten())
+            else len(default_clustering.clustercenters.flatten())
 
     def _compute_free_energy(self, time_series, beta, bins=200, impute=True, minimum_counts=25):
         counts, coordinates = np.histogram(time_series, bins=bins)
@@ -46,7 +46,7 @@ class KramersRateEvaluator:
 
         self.coordinates = coordinates
         self.msd_coordinate = gutl.rms_interval(coordinates)
-        self.free_energy = free_energy
+        self.free_energy = free_energy - np.min(free_energy)
 
     def _fit_msm(self,
                  time_series,
@@ -60,15 +60,17 @@ class KramersRateEvaluator:
 
         # 1) Cluster the coordinate space into discrete states
         if self.default_clustering is None or self.number_of_default_clusters != options['k']:
+            print(f"Debug: default clustering {self.default_clustering}, num default clusters {self.number_of_default_clusters}, k {options['k']}")
             cluster = utl.cluster_time_series(time_series, cluster_type, options)
             self.default_clustering = cluster
+            self.number_of_default_clusters = len(cluster.clustercenters.flatten())
         else:
             print(f'Using default clustering provided.')
             cluster = self.default_clustering
 
         # 2) Compute the state trajectory
-        discrete_traj = cluster.dtrajs[0]
-        cluster_centers = cluster.clustercenters.flatten()
+        discrete_traj = cluster.dtrajs[0].copy()
+        cluster_centers = cluster.clustercenters.copy().flatten()
         self.msm = MSM(state_centers=cluster_centers)
         discrete_traj = self.msm.relabel_trajectory_by_coordinate_chronology(traj=discrete_traj)
 
@@ -80,6 +82,8 @@ class KramersRateEvaluator:
         self.msm.set_stationary_distribution(msm.stationary_distribution)
         self.msm.set_transition_matrix(msm.transition_matrix)
         self.msm.set_lag(lag)
+        self.msm.set_time_step(time_step)
+        self.msm.set_discrete_trajectory(discrete_traj)
         self.diffusion_coefficients = self.msm.compute_diffusion_coefficient(time_step, lag)
         self.msm.plot()
 

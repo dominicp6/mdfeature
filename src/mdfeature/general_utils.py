@@ -1,5 +1,6 @@
 import numpy as np
 import scipy.interpolate as interpolate
+from scipy.ndimage import gaussian_filter1d
 
 
 def replace_inf_with_nan(array):
@@ -41,14 +42,10 @@ def linear_interp_coordinate_data(x_data: list[float], y_data: list[float], x_to
         return float(y_data[-1] + (x_to_evaluate - x_max) * (y_data[-1] - y_data[-2]) / (x_data[-1] - x_data[-2]))
 
 
-def gaussian_smooth(x, y, dx, sigma, gaussian_width=3):
-    # TODO: unit test Gaussian smoothing
+def gaussian_smooth(x, y, dx, sigma):
     interp = interpolate.interp1d(x, y, fill_value='extrapolate')
     interpolated_x = np.arange(min(x), max(x)+dx/2, dx)
-    interpolated_y = interp(interpolated_x)
-    gaussian_x = np.arange(- gaussian_width * sigma, gaussian_width * sigma, dx)
-    # multiply by dx to ensure area conservation after convolution
-    gaussian = dx * (1 / np.sqrt(2 * np.pi * sigma ** 2)) * np.exp(-(gaussian_x / sigma) ** 2 / 2)
-    smoothed_y = np.convolve(interpolated_y, gaussian, mode='same')
+    sigma_gaussian = sigma/dx
+    smoothed_y = gaussian_filter1d(interp(interpolated_x), sigma_gaussian, mode='nearest')
 
     return interpolated_x, smoothed_y

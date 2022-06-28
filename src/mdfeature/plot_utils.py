@@ -2,8 +2,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import warnings
 
+from mdfeature.diffusion_utils import free_energy_estimate, project_points_to_line
 from scipy.signal import find_peaks
-from math import ceil
+from math import ceil, floor
 
 
 def get_digit_text_width(fig, axis):
@@ -123,4 +124,57 @@ def plot_free_energy_landscape(self):
     ax1.set_ylabel(r"Diffusion Coefficient ($Q^2 / s$)", fontsize=16)
     ax2.set_ylabel(r"Free Energy ($kJ/mol$)", fontsize=16)
     plt.title('Free Energy Landscape', fontsize=16)
+    plt.show()
+
+
+def plot_free_energy_estimate(potential, samples, beta, minimum_counts=50):
+    estimated_free_energy, coordinates = free_energy_estimate(samples, beta, minimum_counts)
+    linear_shift = estimated_free_energy[floor(len(estimated_free_energy) / 2)] - potential(0)
+
+    fig = plt.figure(figsize=(6, 6))
+    plt.plot(coordinates, estimated_free_energy - linear_shift, 'k', label='estimated')
+    plt.xlabel('x', fontsize=16)
+    plt.ylabel('F', fontsize=16)
+    x_range = np.arange(min(coordinates), max(coordinates), (max(coordinates) - min(coordinates)) / 1000)
+    plt.plot(x_range, potential(x_range), label='actual')
+    plt.legend()
+    plt.title('Free Energy Surface', fontsize=16)
+
+
+def plot_free_energy_slice(samples, beta, slice_centre, slice_angle, minimum_counts=50):
+    concatenated_samples = np.concatenate(samples)
+    projected_samples = project_points_to_line(concatenated_samples, np.array(slice_centre), slice_angle)
+    free_energy, coordinates = free_energy_estimate(projected_samples, beta, minimum_counts)
+    fig, axs = plt.subplots(1, 3)
+    fig.set_size_inches(18, 5)
+    axs[0].hist2d(concatenated_samples[:, 0], concatenated_samples[:, 1], bins=300)
+    axs[0].plot(slice_centre[0], slice_centre[1], 'rx', markersize=12)
+    max_x = max(concatenated_samples[:, 0])
+    min_x = min(concatenated_samples[:, 0])
+    x_range = np.arange(min_x, max_x, (max_x - min_x) / 1000)
+    m = np.tan(slice_angle);
+    c = slice_centre[1] - m * slice_centre[0]
+    y_range = m * x_range + c
+    axs[0].plot(x_range, y_range, 'r')
+    axs[1].hist(projected_samples, bins=100)
+    axs[2].plot(coordinates, free_energy)
+    plt.show()
+
+    return projected_samples
+
+
+def plot_free_energy_surface(samples, beta, bins=300):
+    concatenated_samples = np.concatenate(samples)
+    fig, axs = plt.subplots(1, 1)
+    fig.set_size_inches(9, 7)
+    h, xedges, yedges, quadmesh = axs.hist2d(concatenated_samples[:, 0], concatenated_samples[:, 1], bins=bins)
+    total_counts = np.sum(h)
+    with np.errstate(divide='ignore'):
+        free_energy = - (1/beta) * np.log(h/total_counts)
+
+    free_energy = free_energy - np.min(free_energy)
+    clb = axs.contourf(xedges[1:], yedges[1:], free_energy.T)
+    plt.colorbar(clb, label='Free energy', ax=axs)
+    plt.xlabel('x', fontsize=16)
+    plt.ylabel('y', fontsize=16)
     plt.show()
