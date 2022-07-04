@@ -22,16 +22,19 @@ class LangevinDynamics():
             self.gradLogProb = lambda x: np.array([float(array) for array in grad(log_prob)(x)])
         self.time_step = time_step
 
-    def simulate(self, number_of_steps, burn_in, seed=0):
-        num_processes = max(1, cpu_count()-1)
-        steps_per_process = int(number_of_steps/num_processes)
+    def simulate(self, number_of_steps, burn_in, seed=0, num_processes=None):
+        if num_processes is None:
+            num_processes = max(1, cpu_count() - 1)
+        else:
+            assert isinstance(num_processes, int)
+        steps_per_process = int(number_of_steps / num_processes)
         assert burn_in < steps_per_process
 
         with Manager() as manager:
             L = manager.list()  # <-- can be shared between processes.
             processes = []
             for process_id in range(num_processes):
-                np.random.seed(process_id + seed*num_processes)
+                np.random.seed(process_id + seed * num_processes)
                 p = Process(target=self.simulate_single_core, args=(L, steps_per_process, process_id, burn_in))
                 p.start()
                 processes.append(p)
@@ -57,9 +60,67 @@ class LangevinDynamics():
     def step(self, x):
         # Euler-Maruyama Step
         W = np.random.normal(size=self.dim)
-        x += self.time_step * self.gradLogProb(x) + np.sqrt(2 * self.time_step) * W
+        x += self.time_step * self.gradLogProb(x) + np.sqrt(2 * self.D * self.time_step) * W
 
         return x
+
+
+class PhysicalLangevinDynamics:
+
+    def __init__(self, U, gamma, M, T, Q0, time_step):
+        # MX'' = - grad U - gamma*M*x' + sqrt(2*M*gamma*k_b*T) R(t)
+        self.U = U
+        self.gamma = gamma
+        self.M = M
+        self.T = T
+        self.grad_U = grad(U)
+        self.Q = Q0
+        self.time_step = time_step
+        self.P = 0
+
+    def simulate(self, number_of_steps, burn_in=0):
+        trajectory = np.zeros(number_of_steps)
+        P_trajectory = np.zeros(number_of_steps)
+        for step_num in range(number_of_steps):
+            Q, P = self.step()
+            trajectory[step_num] = Q
+            P_trajectory[step_num] = P
+
+        return trajectory[burn_in:], P_trajectory[burn_in:]
+
+    def step(self):
+        W = np.random.normal()
+        self.Q += self.P * self.time_step
+        self.P += (-self.grad_U(self.Q) - self.gamma * self.P) * self.time_step \
+                  + np.sqrt(2 * self.M * self.gamma * self.T * self.time_step) * W
+
+        return self.Q, self.P
+
+
+class MarkovProcess:
+
+    def __init__(self, drift, diffusion, jump_frequency, jump_amplitude, time_step):
+        self.x = 0.0
+        self.drift = grad(drift)
+        self.diffusion = diffusion
+        self.jump_frequency = jump_frequency
+        self.jump_amplitude = jump_amplitude
+        self.time_step = time_step
+
+    def step(self):
+        self.x += self.drift(self.x)*self.time_step + np.random.normal(scale=self.diffusion)*np.sqrt(self.time_step)
+        w = np.random.uniform(0,1)
+        if w < (1/self.jump_frequency):
+            self.x += np.random.normal(scale=self.jump_amplitude)
+
+        return self.x
+
+    def simulate(self, number_of_steps):
+        traj = []
+        for step_num in range(number_of_steps):
+            traj.append(self.step())
+
+        return traj
 
 
 if __name__ == "__main__":
@@ -68,7 +129,8 @@ if __name__ == "__main__":
         c = 2
         return -(1 / 4) * (x ** 2) * (h ** 4) + (1 / 2) * (c ** 2) * (x ** 4)
 
-    x_range = np.arange(-3, 3, 1/1000)
+
+    x_range = np.arange(-3, 3, 1 / 1000)
     plt.plot(x_range, [double_well_negative_log(x) for x in x_range])
     plt.show()
 
@@ -81,3 +143,6 @@ if __name__ == "__main__":
     combined_trajectory = np.concatenate(trajectories).ravel()
     plt.hist(combined_trajectory, bins=100)
     plt.show()
+
+
+
