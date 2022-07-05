@@ -7,7 +7,7 @@ from multiprocessing import Process, Manager, cpu_count
 
 class LangevinDynamics():
 
-    def __init__(self, x0, potential, beta, time_step):
+    def __init__(self, x0, potential, beta, time_step, D=1):
         # TODO: check not int
         self.x = x0
         try:
@@ -21,6 +21,7 @@ class LangevinDynamics():
         else:
             self.gradLogProb = lambda x: np.array([float(array) for array in grad(log_prob)(x)])
         self.time_step = time_step
+        self.D = D
 
     def simulate(self, number_of_steps, burn_in, seed=0, num_processes=None):
         if num_processes is None:
@@ -73,23 +74,30 @@ class PhysicalLangevinDynamics:
         self.gamma = gamma
         self.M = M
         self.T = T
-        self.grad_U = grad(U)
         self.Q = Q0
         self.time_step = time_step
-        self.P = 0
+
+        try:
+            self.dim = len(Q0)
+            self.grad_U = lambda x: np.array([float(array) for array in grad(U)(x)])
+            self.P = np.zeros(shape=(len(Q0),))
+        except:
+            self.dim = 1
+            self.grad_U = grad(U)
+            self.P = 0
 
     def simulate(self, number_of_steps, burn_in=0):
-        trajectory = np.zeros(number_of_steps)
-        P_trajectory = np.zeros(number_of_steps)
-        for step_num in range(number_of_steps):
+        trajectory = np.zeros((number_of_steps, self.dim))
+        P_trajectory = np.zeros((number_of_steps, self.dim))
+        for step_num in tqdm(range(number_of_steps)):
             Q, P = self.step()
-            trajectory[step_num] = Q
-            P_trajectory[step_num] = P
+            trajectory[step_num, :] = Q
+            P_trajectory[step_num, :] = P
 
         return trajectory[burn_in:], P_trajectory[burn_in:]
 
     def step(self):
-        W = np.random.normal()
+        W = np.random.normal(size=self.dim)
         self.Q += self.P * self.time_step
         self.P += (-self.grad_U(self.Q) - self.gamma * self.P) * self.time_step \
                   + np.sqrt(2 * self.M * self.gamma * self.T * self.time_step) * W
