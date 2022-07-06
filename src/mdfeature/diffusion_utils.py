@@ -179,7 +179,9 @@ def free_energy_estimate_2D(samples, beta, bins=300):
     h, xedges, yedges, quadmesh = axs.hist2d(samples[:, 0], samples[:, 1], bins=bins)
     total_counts = np.sum(h)
     with np.errstate(divide='ignore'):
-        free_energy = - (1 / beta) * np.log(h / total_counts)
+        #TODO: fix
+        free_energy = - (1 / beta) * np.log(h / total_counts + 0.000000000001)
+        free_energy = np.nan_to_num(free_energy, nan=0)
 
     return free_energy - np.min(free_energy), fig, axs, xedges, yedges
 
