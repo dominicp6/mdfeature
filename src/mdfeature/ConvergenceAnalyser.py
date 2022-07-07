@@ -6,6 +6,7 @@ from tqdm import tqdm
 import scipy.interpolate as interpolate
 import matplotlib.pyplot as plt
 from mdfeature.general_utils import select_lowest_minima
+from scipy.ndimage.filters import gaussian_filter
 
 
 def find_nearest(array, value):
@@ -94,12 +95,12 @@ class AreaOfInterest:
             for y in range(self.y_samples):
                 values[x][y] = function(self.indices_to_coordinate(x, y))
 
-        print(values[50,150], values[150,50])
-        print(function([1,0]), function([0,1]))
-
         return values
 
     def grid_interpolation(self, other):
+        """
+        Use other data to interpolate a grid with the same dimensions and domain as self.
+        """
         assert other.values is not None, "other must define values to interpolate over"
         return interpolate.griddata(other.grid_points(),
                                     other.grid_point_values(),
@@ -121,7 +122,8 @@ class AreaOfInterest:
             for point, val in enumerate(arr):
                 minima_index_array[point, dim] = val
 
-        minima_coordinate_array = [self.indices_to_coordinate(*row_array[0]) for row_array in np.vsplit(minima_index_array, minima_index_array.shape[0])]
+        minima_coordinate_array = [self.indices_to_coordinate(*row_array[0]) for row_array in
+                                   np.vsplit(minima_index_array, minima_index_array.shape[0])]
         minima = select_lowest_minima(minima_coordinate_array, function, n=2)
 
         fig, ax = plt.subplots()
@@ -130,39 +132,57 @@ class AreaOfInterest:
         self.values = values
         self.function = function
         self.minima = minima
-        plt.scatter(self.minima[:,0], self.minima[:,1], c='r')
+        plt.scatter(self.minima[:, 0], self.minima[:, 1], c='r')
         plt.show()
         return self.minima
 
-    def array_interpolate_function(self):
+    def has_same_mesh(self, other):
+        if self.values is None or other.values is None:
+            return False
+        elif other.x_min == self.x_min and other.x_max == self.x_max \
+                and other.y_min == self.y_min and other.y_max == self.y_max \
+                and other.values.shape == self.values.shape:
+            return True
+        else:
+            return False
+
+    def array_interpolate_function(self, sigma=None):
         """
         Generates a cubic interpolation function for an area of interest.
         """
-        cubic_interpolated_array = interpolate.interp2d(self.x_values(), self.y_values(), self.values, kind='cubic')
+        if sigma is not None:
+            # smooth array
+            values = gaussian_filter(self.values, sigma)
+        else:
+            values = self.values
+        cubic_interpolated_array = interpolate.interp2d(self.x_values(), self.y_values(), values, kind='cubic')
 
         return cubic_interpolated_array
 
-    def compute_minima_anomaly(self, other):
+    def compute_minima_anomaly(self, other, sigma=None):
         """
         Computes minima anomaly assuming self as the reference.
         """
         assert self.minima is not None, "can only compute minima anomaly after running detect_local_minima"
         assert len(self.minima) == 2, f"2 local minima required, found {len(self.minima)}"
         assert self.function is not None, "to compute minima anomaly, reference instance requires a defining function"
-        other_interpolator = other.array_interpolate_function()
+        other_interpolator = other.array_interpolate_function(sigma=sigma)
         minima1 = self.minima[0]
         minima2 = self.minima[1]
         reference_difference = self.function(minima1) - self.function(minima2)
         other_difference = other_interpolator(*minima1) - other_interpolator(*minima2)
         anomaly = other_difference - reference_difference
 
+        print("expected minima", minima1, self.function(minima1))
+        print("observed minima", minima1, other_interpolator(*minima1), other_interpolator(*[-1.1, 0]), other_interpolator(*[-0.9, 0]))
+
         return anomaly
 
-    def compute_rmsd_domain_anomaly(self, other, ignore_nans=True):
-        if other.values.shape != self.values.shape:
+    def compute_rmsd_domain_anomaly(self, other, ignore_nans=True, sigma=None):
+        if not self.has_same_mesh(other):
             interpolated_grid = self.grid_interpolation(other)
-            warnings.WarningMessage('Self and other have different grid sizes. '
-                                    'Interpolation will result in significant slow downs.')
+            print('Warning: Self and other have different meshes. '
+                  'Interpolation will result in significant slow downs.')
         else:
             interpolated_grid = other.values
         values = self.values
@@ -170,18 +190,19 @@ class AreaOfInterest:
             interpolated_grid = np.ma.array(interpolated_grid, mask=np.isnan(interpolated_grid))
             values = np.ma.array(values, mask=np.isnan(values))
 
-        # rel_p_hat = np.exp(- interpolated_grid - np.min(interpolated_grid))
-        # p_hat = rel_p_hat / np.sum(rel_p_hat)
-        # rel_p = np.exp(-values - np.min(values))
-        # p = rel_p / np.sum(rel_p)
-        # delta_F = np.sum(p_hat * interpolated_grid) - np.sum(p * values)
-        # interpolated_grid -= delta_F
+        if sigma is not None: #smooth array
+            interpolated_grid = gaussian_filter(interpolated_grid, sigma=sigma)
+        rel_p_hat = np.exp(- interpolated_grid - np.min(interpolated_grid))
+        p_hat = rel_p_hat / np.sum(rel_p_hat)
+        rel_p = np.exp(-values - np.min(values))
+        p = rel_p / np.sum(rel_p)
 
-        # plt.imshow(interpolated_grid)
-        # plt.show()
-        # plt.imshow(values)
-        # plt.show()
-        # input()
+        weighted_estimate = p_hat * interpolated_grid
+        weighted_actual = p * values
+        np.nan_to_num(weighted_actual, copy=False, nan=0.0)
+
+        delta_F = np.sum(weighted_estimate) - np.sum(weighted_actual)
+        interpolated_grid -= delta_F
 
         return np.sqrt(np.mean((interpolated_grid - values) ** 2))
 
@@ -194,19 +215,19 @@ class ConvergenceAnalyser:
         self.AoI = area_of_interest
         self.local_minima = self.AoI.detect_local_minima(function=reference_potential)
 
-    def plot_anomaly(self, burn_in=100000, plot_interval=2000):
+    def plot_anomaly(self, burn_in=100000, plot_interval=2000, sigma=None):
         steps = []
         minima_anomalies = []
         domain_rmsd_anomalies = []
         for step in tqdm(np.arange(plot_interval, len(self.trajectory), plot_interval)):
-            free_energy, x_edges, y_edges = free_energy_estimate_2D(self.trajectory[:step], beta=1, bins=300)
+            free_energy, x_edges, y_edges = free_energy_estimate_2D(self.trajectory[:step], beta=1, bins=200)
             empirical_free_energy = AreaOfInterest(values=free_energy,
                                                    x_min=min(x_edges),
                                                    x_max=max(x_edges),
                                                    y_min=min(y_edges),
                                                    y_max=max(y_edges))
-            minima_anomaly = self.AoI.compute_minima_anomaly(empirical_free_energy)
-            rmsd_anomaly = self.AoI.compute_rmsd_domain_anomaly(empirical_free_energy, ignore_nans=True)
+            minima_anomaly = self.AoI.compute_minima_anomaly(empirical_free_energy, sigma=sigma)
+            rmsd_anomaly = self.AoI.compute_rmsd_domain_anomaly(empirical_free_energy, ignore_nans=True, sigma=sigma)
             if step > burn_in:
                 steps.append(step)
                 minima_anomalies.append(np.abs(minima_anomaly))
@@ -228,6 +249,6 @@ class ConvergenceAnalyser:
 
 if __name__ == "__main__":
     traj = dill.load(open("../../notebooks/double_ring_well_traj_phys.pickle", "rb"))
-    AoI = AreaOfInterest(x_min=-1.5, x_max=1.5, y_min=-1.5, y_max=1.5, x_samples=300, y_samples=300)
+    AoI = AreaOfInterest(x_min=-1.5, x_max=1.5, y_min=-1.5, y_max=1.5, x_samples=200, y_samples=200)
     ca = ConvergenceAnalyser(traj, ring_double_well_potential, AoI)
-    ca.plot_anomaly(plot_interval=5000)
+    ca.plot_anomaly(plot_interval=5000, sigma=2)
