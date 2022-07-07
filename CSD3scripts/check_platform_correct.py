@@ -72,8 +72,15 @@ run_simulation(pdb_name=pdb_name,
                temperature=temperature,
                platform='CUDA')
 time2 = time.time()
+run_simulation(pdb_name=pdb_name,
+               save_name=save_name,
+               reportInterval=reportInterval,
+               iterations=iterations,
+               temperature=temperature,
+               platform='OpenCL')
+time3 = time.time()
 
 print(f"CPU time: {time1-time0}")
 print(f"GPU time: {time2-time1}")
-
+print(f"OpenCL time: {time3-time2}")
 
