@@ -1,8 +1,9 @@
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 import numpy as np
 import warnings
 
-from mdfeature.diffusion_utils import free_energy_estimate, project_points_to_line
+from mdfeature.diffusion_utils import free_energy_estimate, project_points_to_line, free_energy_estimate_2D
 from scipy.signal import find_peaks
 from math import ceil, floor
 
@@ -165,16 +166,70 @@ def plot_free_energy_slice(samples, beta, slice_centre, slice_angle, minimum_cou
 
 def plot_free_energy_surface(samples, beta, bins=300):
     concatenated_samples = np.concatenate(samples)
-    fig, axs = plt.subplots(1, 1)
+    free_energy, fig, axs, xedges, yedges = free_energy_estimate_2D(samples, beta, bins=bins)
     fig.set_size_inches(9, 7)
-    h, xedges, yedges, quadmesh = axs.hist2d(concatenated_samples[:, 0], concatenated_samples[:, 1], bins=bins)
-    total_counts = np.sum(h)
-    with np.errstate(divide='ignore'):
-        free_energy = - (1/beta) * np.log(h/total_counts)
-
-    free_energy = free_energy - np.min(free_energy)
     clb = axs.contourf(xedges[1:], yedges[1:], free_energy.T)
-    plt.colorbar(clb, label='Free energy', ax=axs)
+    plt.colorbar(clb, label='Free Energy', ax=axs)
     plt.xlabel('x', fontsize=16)
     plt.ylabel('y', fontsize=16)
+    plt.show()
+
+
+def hamiltonian(Q, P, M, U):
+    return - ((P ** 2) / (2*M) + U(Q))
+
+
+def phase_plot(Q, P, U, M):
+    min_Q = min(Q); max_Q = max(Q); range_Q = max_Q - min_Q;
+    min_P = min(P); max_P = max(P); range_P = max_P - min_P;
+    Q_range = np.linspace(min_Q - 0.05 * range_Q, max_Q + 0.05 * range_Q, 100)
+    P_range = np.linspace(min_P - 0.05 * range_P, max_P + 0.05 * range_P, 100)
+    Q_mesh, P_mesh = np.meshgrid(Q_range, P_range)
+    plt.pcolormesh(Q_range, P_range, hamiltonian(Q_mesh, P_mesh, M, U))
+    plt.contour(Q_range, P_range, hamiltonian(Q_mesh, P_mesh), levels = 15)
+    plt.xlabel(r'$Q$', fontsize=20)
+    plt.ylabel(r'$P$', fontsize=20)
+    plt.plot(Q, P, 'k', linewidth=0.7)
+    plt.show()
+
+def trajectory_plot(Q0, Q1, U):
+    min_Q0 = min(Q0); max_Q0 = max(Q0); range_Q0 = max_Q0 - min_Q0;
+    min_Q1 = min(Q1); max_Q1 = max(Q1); range_Q1 = max_Q1 - min_Q1;
+    Q0_range = np.linspace(min_Q0 - 0.05 * range_Q0, max_Q0 + 0.05 * range_Q0, 100)
+    Q1_range = np.linspace(min_Q1 - 0.05 * range_Q1, max_Q1 + 0.05 * range_Q1, 100)
+    Q0_mesh, Q1_mesh = np.meshgrid(Q0_range, Q1_range)
+    plt.pcolormesh(Q0_range, Q1_range, U([Q0_mesh, Q1_mesh]))
+    plt.contour(Q0_range, Q1_range, U([Q0_mesh, Q1_mesh]), levels = 15)
+    plt.xlabel(r'$Q_0$', fontsize=20)
+    plt.ylabel(r'$Q_1$', fontsize=20)
+    plt.plot(Q0, Q1, 'k', linewidth=0.7)
+    plt.show()
+
+def potential_contour_plot(x_min, x_max, y_min, y_max, U, vmin=None, vmax=None, set_min_to_zero=True, save=True, save_name='test'):
+    fig, axs = plt.subplots(1, 1)
+    fig.set_size_inches(8, 8)
+    axs.set_aspect('equal')
+    x_range = np.linspace(x_min, x_max, 120)
+    y_range = np.linspace(y_min, y_max, 120)
+    x_mesh, y_mesh = np.meshgrid(x_range, y_range)
+    if set_min_to_zero:
+        U_min = np.min(U([x_mesh, y_mesh]))
+    else:
+        U_min = 0
+    im = axs.pcolormesh(x_range, y_range, U([x_mesh, y_mesh])-U_min)
+    #axs.contour(x_range, y_range, U([x_mesh, y_mesh]), levels=15)
+    divider = make_axes_locatable(axs)
+    cax = divider.append_axes("right", size="5%", pad=0.20)
+    cb = plt.colorbar(im, cax=cax)
+    cb.set_label(label='Free Energy', fontsize=20)
+    axs.xaxis.set_ticks([-2, -1, 0, 1, 2])
+    axs.yaxis.set_ticks([-2, -1, 0, 1, 2])
+    axs.tick_params(axis='x', labelsize=16)
+    axs.tick_params(axis='y', labelsize=16)
+    if vmin is not None and vmax is not None:
+        im.set_clim(vmin, vmax)
+
+    if save:
+        plt.savefig(save_name, format="pdf", bbox_inches="tight")
+
     plt.show()

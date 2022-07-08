@@ -5,8 +5,6 @@ import scipy.integrate as integrate
 from mdfeature.MarkovStateModel import MSM
 import mdfeature.general_utils as gutl
 from autograd import grad
-from math import floor
-
 
 
 def implied_timescale_analysis(discrete_traj, lags, axs):
@@ -168,12 +166,24 @@ def free_energy_estimate(samples, beta, minimum_counts=50):
     robust_counts = counts[np.where(counts > minimum_counts)]
     robust_coordinates = coordinate[np.where(counts > minimum_counts)]
 
-    # log noraml
+    # log normal
     normalised_counts = robust_counts / np.sum(counts)
     with np.errstate(divide='ignore'):
         free_energy = - (1 / beta) * np.log(normalised_counts)
 
     return free_energy, robust_coordinates
+
+
+def free_energy_estimate_2D(samples, beta, bins=300):
+    fig, axs = plt.subplots(1, 1)
+    h, xedges, yedges, quadmesh = axs.hist2d(samples[:, 0], samples[:, 1], bins=bins)
+    total_counts = np.sum(h)
+    with np.errstate(divide='ignore'):
+        #TODO: fix
+        free_energy = - (1 / beta) * np.log(h / total_counts + 0.000000000001)
+        free_energy = np.nan_to_num(free_energy, nan=0)
+
+    return free_energy - np.min(free_energy), fig, axs, xedges, yedges
 
 
 def project_points_to_line(points, coords, theta):
