@@ -2,9 +2,6 @@
 import openmm
 import openmm.app as app
 import openmm.unit as unit
-#from openmmml import MLPotential
-# import mdtraj as md
-#from dcdsubsetfile.dcdsubsetreporter import DCDSubsetReporter
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -139,8 +136,7 @@ pdb.writeFile(
 def makeSystem(ff):
     return ff.createSystem(
         pdb.topology,
-        #nonbondedMethod = app.CutoffNonPeriodic,
-        nonbondedMethod=app.CutoffNonPeriodic, #if args.nonperiodic else app.PME,
+        nonbondedMethod=app.CutoffNonPeriodic,
         nonbondedCutoff=1 * unit.nanometer,
         # constraints = app.AllBonds,
         # hydrogenMass = 4*unit.amu,
@@ -152,38 +148,8 @@ if forcefield == "amber":  # Create AMBER system
         'amber14-all.xml',
         'amber14/tip3p.xml'
     ))
-# elif forcefield == "ani2x":  # Create ANI system
-#     system = makeSystem(MLPotential(
-#         'ani2x'
-#     ))
-# elif forcefield == "ani1ccx":  # Create ANI system
-#     system = makeSystem(MLPotential(
-#         'ani1ccx'
-#     ))
-# elif forcefield == "ani2x_mixed":  # Create mixed ANI/AMBER system
-#     amber_system = makeSystem(app.ForceField(
-#         'amber14-all.xml',
-#         'amber14/tip3p.xml'
-#     ))
-#     # Select protein atoms to be simulated by ANI2x
-#     # Water will be simulated by AMBER for speedup
-#     system = MLPotential('ani2x').createMixedSystem(
-#         pdb.topology,
-#         amber_system,
-#         peptide_indices
-#     )
-# elif forcefield == "ani1ccx_mixed":  # Create mixed ANI/AMBER system
-#     amber_system = makeSystem(app.ForceField(
-#         'amber14-all.xml',
-#         'amber14/tip3p.xml'
-#     ))
-#     # Select protein atoms to be simulated by ANI2x
-#     # Water will be simulated by AMBER for speedup
-#     system = MLPotential('ani1ccx').createMixedSystem(
-#         pdb.topology,
-#         amber_system,
-#         peptide_indices
-#     )
+else:
+    raise ValueError(f'Force field {forcefield} not supported.')
 
 ##############################################
 #   INITIALISE SIMULATION
@@ -207,6 +173,7 @@ simulation = app.Simulation(
     openmm.Platform.getPlatformByName("CUDA"),
     properties
 )
+
 simulation.context.setPositions(pdb.positions)
 if resume:
     with open(os.path.join(output_dir, CHECKPOINT_FN), "rb") as f:
@@ -241,18 +208,11 @@ simulation.reporters.append(app.StateDataReporter(
 ))
 # Reporter to save trajectory
 # Save only a subset of atoms to the trajectory, ignore water
-# simulation.reporters.append(md.reporters.DCDReporter(
-#     os.path.join(output_dir, TRAJECTORY_FN),
-#     steps_per_save,
-#     peptide_indices,
-#     append = True if resume else False
-# ))
-# simulation.reporters.append(DCDSubsetReporter(
-#     os.path.join(output_dir, TRAJECTORY_FN),
-#     steps_per_save,
-#     peptide_indices,
-#     append=True if resume else False
-# ))
+simulation.reporters.append(app.DCDReporter(
+    os.path.join(output_dir, TRAJECTORY_FN),
+    reportInterval=steps_per_save,
+    append=True if resume else False))
+
 # Reporter to save regular checkpoints
 simulation.reporters.append(app.CheckpointReporter(
     os.path.join(output_dir, CHECKPOINT_FN),
