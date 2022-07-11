@@ -31,18 +31,23 @@ class LangevinDynamics():
         steps_per_process = int(number_of_steps / num_processes)
         assert burn_in < steps_per_process
 
-        with Manager() as manager:
-            L = manager.list()  # <-- can be shared between processes.
-            processes = []
-            for process_id in range(num_processes):
-                np.random.seed(process_id + seed * num_processes)
-                p = Process(target=self.simulate_single_core, args=(L, steps_per_process, process_id, burn_in))
-                p.start()
-                processes.append(p)
-            for p in processes:
-                p.join()
+        if num_processes > 1:
+            with Manager() as manager:
+                L = manager.list()  # <-- can be shared between processes.
+                processes = []
+                for process_id in range(num_processes):
+                    np.random.seed(process_id + seed * num_processes)
+                    p = Process(target=self.simulate_single_core, args=(L, steps_per_process, process_id, burn_in))
+                    p.start()
+                    processes.append(p)
+                for p in processes:
+                    p.join()
 
-            return list(L)
+                return list(L)
+        else:
+            L = []
+            self.simulate_single_core(L, number_of_steps, 0, burn_in)
+            return L
 
     def simulate_single_core(self, trajectory_array, number_of_steps, process_id, burn_in):
         x = self.x
