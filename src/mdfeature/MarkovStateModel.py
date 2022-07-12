@@ -69,10 +69,12 @@ class MSM:
 
     def compute_diffusion_coefficient(self, time_step, lag):
         tau = lag * time_step
+        print(tau, type(tau))
         c1 = self.calculate_correlation_coefficient(n=1)
         c2 = self.calculate_correlation_coefficient(n=2)
         # space-dependent diffusion coefficient
         diffusion_coefficient = (c2 - c1 ** 2) / (2 * tau)
+        print(diffusion_coefficient)
 
         return diffusion_coefficient
 

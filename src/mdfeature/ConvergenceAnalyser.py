@@ -159,17 +159,21 @@ class AreaOfInterest:
 
         return cubic_interpolated_array
 
-    def compute_minima_anomaly(self, other, sigma=None):
+    def compute_minima_anomaly(self, other, sigma_other=None, sigma_this=None):
         """
         Computes minima anomaly assuming self as the reference.
         """
         assert self.minima is not None, "can only compute minima anomaly after running detect_local_minima"
         assert len(self.minima) == 2, f"2 local minima required, found {len(self.minima)}"
-        assert self.function is not None, "to compute minima anomaly, reference instance requires a defining function"
-        other_interpolator = other.array_interpolate_function(sigma=sigma)
+        other_interpolator = other.array_interpolate_function(sigma=sigma_other)
         minima1 = self.minima[0]
         minima2 = self.minima[1]
-        reference_difference = self.function(minima1) - self.function(minima2)
+        if self.function is not None:
+            print("Using defining function to compute minima anomaly.")
+            reference_difference = self.function(minima1) - self.function(minima2)
+        else:
+            this_interpolator = self.array_interpolate_function(sigma=sigma_this)
+            reference_difference = this_interpolator(*minima1) - this_interpolator(*minima2)
         other_difference = other_interpolator(*minima1) - other_interpolator(*minima2)
         anomaly = other_difference - reference_difference
 
