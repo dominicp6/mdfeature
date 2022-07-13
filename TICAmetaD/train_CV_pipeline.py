@@ -11,7 +11,7 @@ pdb_file = md.load_pdb('alanine.pdb')
 top = pdb_file.topology
 
 # Load Trajectory(s)
-trj_list = [md.load_dcd("test_traj.dcd",top=top)]
+trj_list = [md.load_dcd("trajectory.dcd",top=top)]
 print("Found %d trajs"%len(trj_list))
 
 # Dihedral Featurizing
@@ -23,6 +23,7 @@ dump(feat, "raw_features.pkl")
 f=DihedralFeaturizer()
 dump(f,"featurizer.pkl")
 df1 = pd.DataFrame(f.describe_features(trj_list[0]))
+print("featurized df shape", df1.shape)
 dump(df1,"feature_descriptor.pkl")
 feat = f.transform(trj_list)
 dump(feat, "features.pkl")
@@ -79,8 +80,10 @@ def get_dihedral_label_from_residue_indices(dihedral, residue_indices):
 
 def write_torsion_labels_to_file(exp: Experiment, indices, file):
     encountered = []
+    print("descriptors", exp.descriptors)
     dihedrals = exp.descriptors.iloc[indices].iterrows()
     for dihedral in dihedrals:
+        print("dihedral", dihedral)
         feature_idx, atom_indices, residue_indices, otherinfo = get_indices(dihedral)
         dihedral_label = get_dihedral_label_from_residue_indices(dihedral, residue_indices)
         if dihedral_label not in encountered:
@@ -157,7 +160,10 @@ def write_final_line(height, pace, file):
 def create_plumed_script(exp):
     f = open("./plumed.py", 'w')
     f.write("plumed_script=\"RESTART " + "\\n\\" + "\n")
+    print("components", exp.tica_mdl.components_)
+    print("eigenvalues", exp.tica_mdl.eigenvalues_)
     inds = np.nonzero(exp.tica_mdl.components_[0, :])
+    print("inds", inds)
     write_torsion_labels_to_file(exp, indices=inds, file=f)
     write_transform_labels_to_file(exp, indices=inds, file=f)
     write_combined_label(exp, indices=inds, file=f)
@@ -165,3 +171,4 @@ def create_plumed_script(exp):
 
 
 exp = Experiment(loc='./')
+create_plumed_script(exp)
