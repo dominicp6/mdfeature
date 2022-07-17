@@ -10,6 +10,7 @@ import argparse
 import datetime
 import os
 import sys
+from openmmplumed import PlumedForce
 
 ##############################################
 #   CONSTANTS
@@ -58,6 +59,8 @@ parser.add_argument("-c", "--frictioncoeff", default="1ps",
                     help="Integrator friction coeff [your value]^-1 ie for 0.1fs^-1 put in 0.1fs. The unit but not the value will be converted to its reciprocal.")
 parser.add_argument("-np", "--nonperiodic", action=argparse.BooleanOptionalAction,
                     help="Prevent periodic boundary conditions from being applied")
+parser.add_argument("-p", "--plumed", action=argparse.BooleanOptionalAction, help="Whether or not to run PLUMED metadynamics.")
+parser.add_argument("-mdm", "--metadynamics_method", default='TICA', help="The method to use for metadynamics: either PCA, TICA, VAMP or DMAP.")
 
 args = parser.parse_args()
 
@@ -68,6 +71,7 @@ duration = parse_quantity(args.duration)
 savefreq = parse_quantity(args.savefreq)
 stepsize = parse_quantity(args.stepsize)
 frictioncoeff = parse_quantity(args.frictioncoeff)
+plumed = args.plumed
 
 frictioncoeff = frictioncoeff._value / frictioncoeff.unit
 
@@ -150,6 +154,23 @@ if forcefield == "amber":  # Create AMBER system
     ))
 else:
     raise ValueError(f'Force field {forcefield} not supported.')
+
+if plumed:
+    import plumed_scripts as plm
+    if args.metadynamics_method == 'PCA':
+        script = plm.PCA_script
+    elif args.metadynamics_method == 'TICA':
+        script = plm.TICA_script
+    elif args.metadynamics_method == 'VAMP':
+        script = plm.VAMP_script
+    elif args.metadynamics_script == 'DMAP':
+        script = plm.DMAP_script
+    system.addForce(PlumedForce(script))
+    print(f"Running with PLUMED... ({args.metadynamics_method})")
+
+with open(os.path.join(output_dir, "readme.txt"), "w") as f:
+    [print(arg) for arg in args._get_kwargs()]
+    [f.write(f"{arg[0]} : {arg[1]}\n") for arg in args._get_kwargs()]
 
 ##############################################
 #   INITIALISE SIMULATION

@@ -80,6 +80,6 @@ if __name__ == "__main__":
     phi = [4, 6, 8 ,14]
     psi = [6, 8, 14, 16]
     compute_dihedral_trajectory(pdb_file='alanine.pdb',
-                                trajectory='../data/outputs/alanine_1us/trajectory.dcd',
+                                trajectory='./outputs/production_alanine_amber_175730_160722/trajectory.dcd',
                                 dihedrals=[phi, psi],
-                                save_name='alanine_1us_dihedral_traj')
+                                save_name='alanine_1.5ns_VAMP_dihedral_traj')
