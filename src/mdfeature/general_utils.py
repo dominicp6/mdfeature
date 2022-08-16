@@ -54,7 +54,7 @@ def gaussian_smooth(x, y, dx, sigma):
 def select_lowest_minima(minima_array, function, n=2):
     value_array = []
     for minima in minima_array:
-        value_array.append(function(minima))
+        value_array.append(function(*minima))
     idx = np.argsort(value_array)[:n]
 
     return np.array([minima_array[i] for i in idx])

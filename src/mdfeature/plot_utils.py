@@ -122,24 +122,28 @@ def plot_free_energy_landscape(self):
         display_state_numbers(state_boundaries, self.coordinates, self.smoothed_F, digit_width)
 
     ax1.set_xlabel('Q', fontsize=16)
-    ax1.set_ylabel(r"Diffusion Coefficient ($Q^2 / s$)", fontsize=16)
-    ax2.set_ylabel(r"Free Energy ($kJ/mol$)", fontsize=16)
-    plt.title('Free Energy Landscape', fontsize=16)
+    ax1.set_ylabel(r"Diffusion Coefficient $D^{(2)}(Q)$ ($Q^2 / s$)", fontsize=18)
+    ax2.set_ylabel(r"$\mathcal{F}$ ($kJ/mol$)", fontsize=18)
+    plt.xticks(fontsize=14)
+    plt.yticks(fontsize=14)
+    #plt.title('Free Energy Landscape', fontsize=16)
+    plt.savefig("free_energy_landscape.pdf")
     plt.show()
 
 
-def plot_free_energy_estimate(potential, samples, beta, minimum_counts=50):
+def plot_free_energy_estimate(potential, samples, beta, name, minimum_counts=50):
     estimated_free_energy, coordinates = free_energy_estimate(samples, beta, minimum_counts)
     linear_shift = estimated_free_energy[floor(len(estimated_free_energy) / 2)] - potential(0)
 
     fig = plt.figure(figsize=(6, 6))
     plt.plot(coordinates, estimated_free_energy - linear_shift, 'k', label='estimated')
-    plt.xlabel('x', fontsize=16)
-    plt.ylabel('F', fontsize=16)
+    plt.xlabel('Q', fontsize=18)
+    plt.ylabel(r'$\mathcal{F}$', fontsize=18)
     x_range = np.arange(min(coordinates), max(coordinates), (max(coordinates) - min(coordinates)) / 1000)
     plt.plot(x_range, potential(x_range), label='actual')
     plt.legend()
-    plt.title('Free Energy Surface', fontsize=16)
+    #plt.title('Free Energy Surface', fontsize=16)
+    plt.savefig(name)
 
 
 def plot_free_energy_slice(samples, beta, slice_centre, slice_angle, minimum_counts=50):

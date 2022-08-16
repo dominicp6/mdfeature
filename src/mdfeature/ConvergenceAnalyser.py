@@ -34,8 +34,8 @@ def ring_double_well_potential(x):
         -((x[0] - r0 * np.cos(theta0)) ** 2 + (x[1] - r0 * np.sin(theta0)) ** 2) / (2 * w ** 2))
 
 
-def free_energy_estimate_2D(samples, beta, bins=300):
-    hist, xedges, yedges = np.histogram2d(samples[:, 0], samples[:, 1], bins=bins)
+def free_energy_estimate_2D(samples, beta, bins=300, weights=None):
+    hist, xedges, yedges = np.histogram2d(samples[:, 0], samples[:, 1], bins=bins, weights=weights)
     total_counts = np.sum(hist)
     with np.errstate(divide='ignore'):
         free_energy = - (1 / beta) * np.log(hist / total_counts + 0.000000000001)
@@ -213,11 +213,10 @@ class AreaOfInterest:
 
 class ConvergenceAnalyser:
 
-    def __init__(self, trajectory, reference_potential, area_of_interest: AreaOfInterest):
+    def __init__(self, reference_grid: AreaOfInterest, trajectory):
         self.trajectory = trajectory
-        self.reference_potential = reference_potential
-        self.AoI = area_of_interest
-        self.local_minima = self.AoI.detect_local_minima(function=reference_potential)
+        self.reference_grid = reference_grid
+        self.local_minima = self.reference_grid.detect_local_minima(values=reference_grid.values)
 
     def plot_anomaly(self, burn_in=100000, plot_interval=2000, sigma=None):
         steps = []
@@ -230,8 +229,8 @@ class ConvergenceAnalyser:
                                                    x_max=max(x_edges),
                                                    y_min=min(y_edges),
                                                    y_max=max(y_edges))
-            minima_anomaly = self.AoI.compute_minima_anomaly(empirical_free_energy, sigma=sigma)
-            rmsd_anomaly = self.AoI.compute_rmsd_domain_anomaly(empirical_free_energy, ignore_nans=True, sigma=sigma)
+            minima_anomaly = self.reference_grid.compute_minima_anomaly(empirical_free_energy, sigma=sigma)
+            rmsd_anomaly = self.reference_grid.compute_rmsd_domain_anomaly(empirical_free_energy, ignore_nans=True, sigma=sigma)
             if step > burn_in:
                 steps.append(step)
                 minima_anomalies.append(np.abs(minima_anomaly))
@@ -252,7 +251,7 @@ class ConvergenceAnalyser:
 
 
 if __name__ == "__main__":
-    traj = dill.load(open("../../notebooks/double_ring_well_traj_phys.pickle", "rb"))
+    traj = dill.load(open("../../notebooks/miscdata/double_ring_well_traj_phys.pickle", "rb"))
     AoI = AreaOfInterest(x_min=-1.5, x_max=1.5, y_min=-1.5, y_max=1.5, x_samples=200, y_samples=200)
     ca = ConvergenceAnalyser(traj, ring_double_well_potential, AoI)
     ca.plot_anomaly(plot_interval=5000, sigma=2)

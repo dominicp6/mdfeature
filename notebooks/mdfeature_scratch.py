@@ -206,7 +206,7 @@ simulation = run_simulation(pdb_name='alanine.pdb', save_name='trajectory.dcd', 
 
 def open_trajectory_file(traj_file, skip_first=1000, use_test_trajectory=False):
     if use_test_trajectory:
-        traj_file = 'test_traj.dcd'
+        traj_file = 'miscdata/test_traj.dcd'
 
     traj_std_tmp = md.load_dcd(traj_file, mdinit.topology)
     traj_orig = traj_std_tmp[skip_first:]

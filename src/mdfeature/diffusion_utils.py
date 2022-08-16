@@ -47,16 +47,17 @@ def diffusion_coefficient_sensitivity_analysis(cluster_centers, discrete_traj, l
         tau = lags[idx] * time_step
         D4 = (1 / (4 * 3 * 2 * tau)) * c4
         error_ratio = D4 / diff_coeffs ** 2
-        if min(error_ratio) < 0.25:
-            axs[1, 1].plot(msm.sorted_state_centers, D4 / diff_coeffs ** 2, label="lag=" + str(lags[idx]))
-            maxima.append(max(D4 / diff_coeffs ** 2))
+        #if min(error_ratio) < 0.25:
+        axs[1, 1].plot(msm.sorted_state_centers, D4 / diff_coeffs ** 2, label="lag=" + str(lags[idx]))
+        maxima.append(max(D4 / diff_coeffs ** 2))
     axs[1, 1].set_yscale('log')
     axs[1, 1].hlines(0.25, min(msm.sorted_state_centers), max(msm.sorted_state_centers), colors='r')
     axs[1, 1].set_title("Langevin Dynamics Check", fontsize=16)
     axs[1, 1].set_ylabel(r"$D^{(4)}(Q)/D^{(2)}(Q)^2$", fontsize=16)
     axs[1, 1].set_xlabel(r"$Q$", fontsize=16)
-    axs[1, 1].set_ylim(top=np.mean(maxima))
+    #axs[1, 1].set_ylim(top=np.mean(maxima))
     axs[1, 1].legend()
+    #plt.savefig("Kramers_free_energy_eval.pdf")
     plt.show()
 
 
